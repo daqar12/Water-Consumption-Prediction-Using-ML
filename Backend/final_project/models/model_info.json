@@ -1,6 +1,6 @@
 {
     "target_column": "November",
-    "final_model": "Tuned XGBoost",
+    "best_model": "Tuned XGBoost",
     "training_features": [
         "September",
         "October",

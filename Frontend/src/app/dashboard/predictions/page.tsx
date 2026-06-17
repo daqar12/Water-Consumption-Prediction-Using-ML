@@ -39,7 +39,6 @@ const modelDisplayNames: Record<string, string> = {
     xgboost: "XGBoost",
     tuned_random_forest: "Tuned Random Forest",
     tuned_xgboost: "Tuned XGBoost",
-    final_model: "Final Model",
 };
 
 // ── Types ────────────────────────────────────────────────
@@ -220,7 +219,7 @@ export default function MLPredictionsPage() {
                 return;
             }
 
-            const finalPred = data.predictions?.final_model ?? 0;
+            const finalPred = data.predictions?.tuned_xgboost ?? 0;
 
             setResult({
                 bestModel:      data.best_model,
@@ -532,7 +531,7 @@ export default function MLPredictionsPage() {
                                     </p>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                         {Object.entries(result.allPredictions).map(([name, value]) => {
-                                            const isFinal = name === "final_model";
+                                            const isFinal = name === "tuned_xgboost";
                                             return (
                                                 <div key={name}
                                                     className={`rounded-2xl p-3 border transition-all ${isFinal
