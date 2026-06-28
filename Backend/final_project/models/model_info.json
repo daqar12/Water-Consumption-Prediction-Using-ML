@@ -1,15 +1,12 @@
 {
     "target_column": "November",
-    "final_model": "Tuned XGBoost",
+    "final_model": "Tuned Random Forest",
     "training_features": [
         "September",
         "October",
         "Average_Consumption",
         "Consumption_Difference",
         "Consumption_Growth_Rate",
-        "Is_Commercial",
-        "Household_Size",
-        "Rainy_Dry_Ratio",
         "Branch_Bakaaro",
         "Branch_Dayniile",
         "Branch_Garasbaaleey",

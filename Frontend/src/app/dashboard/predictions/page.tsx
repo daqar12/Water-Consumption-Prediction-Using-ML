@@ -6,7 +6,7 @@ import {
     SlidersHorizontal, FileText, Download, Save,
     Share2, Filter, Clock, Target, Award,
     ChevronDown, Loader2, Sparkles, AlertCircle,
-    CheckCircle2, AlertTriangle, BarChart3, X
+    CheckCircle2, AlertTriangle, BarChart3, X, RefreshCcw
 } from "lucide-react";
 import {
     RadialBarChart, RadialBar, ResponsiveContainer,
@@ -14,8 +14,8 @@ import {
     LineChart, Line, Area, AreaChart
 } from "recharts";
 
-// ── Constants from the trained model ─────────────────────
-const API_BASE = "http://127.0.0.1:4050";
+// ── API endpoint — FastAPI backend (runs ML + auto-saves to PostgreSQL) ──
+const FASTAPI_BASE = "http://127.0.0.1:8000";
 
 const branchList = [
     "Bakaaro", "Dayniile", "Garasbaaleey", "Hodan",
@@ -51,25 +51,16 @@ interface PredictionResult {
 }
 
 interface HistoryRow {
-    id: string;
+    id: number;
     branch: string;
     zone: string;
-    september: number;
-    october: number;
-    predicted: number;
-    model: string;
-    date: string;
+    september_consumption: number;
+    october_consumption: number;
+    final_prediction: number;
+    prediction_status: string;
+    notes: string | null;
+    created_at: string;
 }
-
-// ── Mock chart data (decorative, same as before) ─────────
-const trendData = [
-    { month: "Jun", predicted: 18, actual: 17 },
-    { month: "Jul", predicted: 22, actual: 21 },
-    { month: "Aug", predicted: 25, actual: 26 },
-    { month: "Sep", predicted: 19, actual: 20 },
-    { month: "Oct", predicted: 15, actual: 14 },
-    { month: "Nov", predicted: 14, actual: null },
-];
 
 // ── Animated counter ──────────────────────────────────────
 function useCountUp(target: number, duration = 1200) {
@@ -168,29 +159,48 @@ function Select({ label, options, value, onChange }: {
 // ══════════════════════════════════════════════════════════
 export default function MLPredictionsPage() {
     // Form state — matches backend required fields
-    const [september,  setSeptember]  = useState("");
-    const [october,    setOctober]    = useState("");
-    const [branch,     setBranch]     = useState("");
-    const [zone,       setZone]       = useState("");
-    const [notes,      setNotes]      = useState("");
+    const [september, setSeptember] = useState("");
+    const [october, setOctober] = useState("");
+    const [branch, setBranch] = useState("");
+    const [zone, setZone] = useState("");
+    const [notes, setNotes] = useState("");
 
-    const [loading,    setLoading]    = useState(false);
-    const [result,     setResult]     = useState<PredictionResult | null>(null);
-    const [apiError,   setApiError]   = useState("");
-    const [errors,     setErrors]     = useState<Record<string, string>>({});
-    const [history,    setHistory]    = useState<HistoryRow[]>([]);
-    const [filterStat, setFilterStat] = useState<"all" | string>("all");
+    const [loading, setLoading] = useState(false);
+    const [result, setResult] = useState<PredictionResult | null>(null);
+    const [apiError, setApiError] = useState("");
+    const [errors, setErrors] = useState<Record<string, string>>({});
+    const [history, setHistory] = useState<HistoryRow[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(true);
+
+    // ── Load prediction history from PostgreSQL on mount ──
+    const fetchHistory = async () => {
+        try {
+            setHistoryLoading(true);
+            const res = await fetch(`${FASTAPI_BASE}/predictions?limit=50&sort_order=desc`);
+            if (res.ok) {
+                const data = await res.json();
+                setHistory(data.data || []);
+            }
+        } catch (err) {
+            console.error("Failed to load prediction history:", err);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    useEffect(() => { fetchHistory(); }, []);
 
     const validate = () => {
         const e: Record<string, string> = {};
         if (!september || isNaN(Number(september))) e.september = "Enter a valid September value";
-        if (!october   || isNaN(Number(october)))   e.october   = "Enter a valid October value";
-        if (!branch)   e.branch   = "Please select a branch";
-        if (!zone)     e.zone     = "Please select a zone";
+        if (!october || isNaN(Number(october))) e.october = "Enter a valid October value";
+        if (!branch) e.branch = "Please select a branch";
+        if (!zone) e.zone = "Please select a zone";
         setErrors(e);
         return Object.keys(e).length === 0;
     };
 
+    // ── Generate Prediction → calls FastAPI → runs ML → auto-saves to PostgreSQL ──
     const handlePredict = async () => {
         if (!validate()) return;
         setLoading(true);
@@ -199,14 +209,15 @@ export default function MLPredictionsPage() {
 
         const payload = {
             September: parseFloat(september),
-            October:   parseFloat(october),
-            Branch:    branch,
-            Zone:      zone,
+            October: parseFloat(october),
+            Branch: branch,
+            Zone: zone,
+            notes: notes || null,
         };
 
         try {
-            // Call predict-all to get predictions from every model
-            const res = await fetch(`${API_BASE}/predict-all`, {
+            // POST /predictions — FastAPI runs the ML model AND saves to PostgreSQL automatically
+            const res = await fetch(`${FASTAPI_BASE}/predictions`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
@@ -215,49 +226,63 @@ export default function MLPredictionsPage() {
             const data = await res.json();
 
             if (!res.ok) {
-                setApiError(data.error || "Prediction failed");
+                setApiError(data.detail || "Prediction failed");
                 setLoading(false);
                 return;
             }
 
-            const finalPred = data.predictions?.final_model ?? 0;
+            // Reconstruct allPredictions from the backend response for model comparison charts
+            const allPredictions: Record<string, number> = {
+                linear_regression: data.linear_regression_prediction,
+                decision_tree: data.decision_tree_prediction,
+                random_forest: data.random_forest_prediction,
+                gradient_boosting: data.gradient_boosting_prediction,
+                xgboost: data.xgboost_prediction,
+                tuned_random_forest: data.tuned_random_forest_prediction,
+                tuned_xgboost: data.tuned_xgboost_prediction,
+                final_model: data.final_prediction,
+            };
 
             setResult({
-                bestModel:      data.best_model,
-                finalPrediction: finalPred,
-                input:          payload,
-                allPredictions:  data.predictions,
+                bestModel: "final_model",
+                finalPrediction: data.final_prediction,
+                input: payload,
+                allPredictions,
             });
 
-            // Add to local history
-            setHistory(prev => [{
-                id:        `PRD-${String(prev.length + 1).padStart(3, "0")}`,
-                branch:    branch,
-                zone:      zone,
-                september: payload.September,
-                october:   payload.October,
-                predicted: finalPred,
-                model:     data.best_model,
-                date:      new Date().toLocaleDateString(),
-            }, ...prev]);
+            // Refresh the prediction history table from the database
+            await fetchHistory();
 
         } catch (err: unknown) {
-            setApiError("Could not connect to ML server. Make sure the backend is running on port 4050.");
+            setApiError("Could not connect to the backend. Make sure FastAPI is running on port 8000 and the ML server is running on port 4050.");
         } finally {
             setLoading(false);
         }
     };
 
-    // Build bar chart data from all model predictions
-    const modelBarData = result
-        ? Object.entries(result.allPredictions).map(([name, value]) => ({
-            model: modelDisplayNames[name] || name,
-            value: Math.round(value * 100) / 100,
-        }))
+    // Predictions from every individual model, EXCLUDING the blended/final model.
+    // This feeds both the bar chart and the "All Model Predictions" grid so that
+    // only the real per-algorithm outputs (Linear Regression, Decision Tree,
+    // Random Forest, Gradient Boosting, XGBoost, etc.) are shown there.
+    const individualPredictions = result
+        ? Object.entries(result.allPredictions).filter(([name]) => name !== "final_model")
         : [];
 
+    // Build bar chart data from individual model predictions only
+    const modelBarData = individualPredictions.map(([name, value]) => ({
+        model: modelDisplayNames[name] || name,
+        value: Math.round(value * 100) / 100,
+    }));
+
+    // Build trend data from the history for the chart
+    const trendData = history.slice(0, 6).reverse().map((h, i) => ({
+        month: new Date(h.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        predicted: Math.round(h.final_prediction * 100) / 100,
+        actual: Math.round(h.october_consumption * 100) / 100,
+    }));
+
     const statusCfg: Record<string, { label: string; class: string }> = {
-        all:       { label: "All",       class: "" },
+        all: { label: "All", class: "" },
     };
 
     return (
@@ -272,12 +297,15 @@ export default function MLPredictionsPage() {
                     <p className="text-slate-500 text-sm mt-1 ml-1">Water consumption forecasting powered by machine learning — predicts November consumption.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-600 dark:text-slate-300 hover:border-primary/40 transition-all">
+                    <button
+                        onClick={() => window.open(`${FASTAPI_BASE}/reports/export/csv`, "_blank")}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-600 dark:text-slate-300 hover:border-primary/40 transition-all">
                         <Download className="w-4 h-4" /> Export
                     </button>
-                    <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary to-teal-500 text-white text-sm font-medium shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all">
-                        <Save className="w-4 h-4" /> Save Results
-                    </button>
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                        <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        <span className="text-xs font-medium text-green-600 dark:text-green-400">Auto-Save ON</span>
+                    </div>
                 </div>
             </div>
 
@@ -367,10 +395,15 @@ export default function MLPredictionsPage() {
                         <button onClick={handlePredict} disabled={loading}
                             className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-primary to-teal-500 text-white font-bold text-sm shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-200">
                             {loading
-                                ? <><Loader2 className="w-4 h-4 animate-spin" />Analyzing with ML Model...</>
-                                : <><Brain  className="w-4 h-4" />Generate Prediction</>
+                                ? <><Loader2 className="w-4 h-4 animate-spin" />Analyzing & Saving...</>
+                                : <><Brain className="w-4 h-4" />Generate Prediction</>
                             }
                         </button>
+
+                        <p className="text-center text-xs text-slate-400 flex items-center justify-center gap-1.5">
+                            <CheckCircle2 className="w-3 h-3 text-green-500" />
+                            Predictions are automatically saved to the database
+                        </p>
                     </div>
                 </div>
 
@@ -398,7 +431,7 @@ export default function MLPredictionsPage() {
                     {loading && (
                         <div className="rounded-3xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl p-8 space-y-6 animate-pulse">
                             <div className="flex justify-center"><div className="w-48 h-48 rounded-full bg-slate-100 dark:bg-slate-800" /></div>
-                            {[1,2,3].map(i => <div key={i} className="h-8 rounded-2xl bg-slate-100 dark:bg-slate-800" />)}
+                            {[1, 2, 3].map(i => <div key={i} className="h-8 rounded-2xl bg-slate-100 dark:bg-slate-800" />)}
                         </div>
                     )}
 
@@ -410,11 +443,11 @@ export default function MLPredictionsPage() {
                         const levelGradient = pred >= 15 ? "from-green-400 to-teal-500" : pred >= 8 ? "from-amber-400 to-orange-500" : "from-blue-400 to-cyan-500";
                         const LevelIcon = pred >= 15 ? CheckCircle2 : pred >= 8 ? AlertTriangle : AlertCircle;
 
-                        // Find min and max across all model predictions for chart scaling
-                        const allVals = Object.values(result.allPredictions);
-                        const avgPred = allVals.reduce((a, b) => a + b, 0) / allVals.length;
-                        const minPred = Math.min(...allVals);
-                        const maxPred = Math.max(...allVals);
+                        // Stats computed from individual models only (final_model excluded)
+                        const allVals = individualPredictions.map(([, value]) => value);
+                        const avgPred = allVals.length ? allVals.reduce((a, b) => a + b, 0) / allVals.length : 0;
+                        const minPred = allVals.length ? Math.min(...allVals) : 0;
+                        const maxPred = allVals.length ? Math.max(...allVals) : 0;
 
                         return (
                             <div className="space-y-5">
@@ -451,7 +484,6 @@ export default function MLPredictionsPage() {
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     <div className="flex justify-between text-xs font-medium text-slate-600 dark:text-slate-300">
-                                                        <span>Best Model</span><span className="font-semibold">{result.bestModel}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -462,10 +494,10 @@ export default function MLPredictionsPage() {
                                 {/* Analytics cards */}
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                     {[
-                                        { label: "Final Prediction", value: `${pred.toFixed(2)} m³`,     icon: <Target     className="w-4 h-4 text-blue-500"   />, bg: "bg-blue-50   dark:bg-blue-900/20"   },
-                                        { label: "Models Used",      value: `${allVals.length}`,          icon: <Award       className="w-4 h-4 text-green-500"  />, bg: "bg-green-50  dark:bg-green-900/20"  },
-                                        { label: "Avg Prediction",   value: `${avgPred.toFixed(2)} m³`,   icon: <TrendingUp  className="w-4 h-4 text-teal-500"   />, bg: "bg-teal-50   dark:bg-teal-900/20"   },
-                                        { label: "Prediction Range", value: `${minPred.toFixed(1)} – ${maxPred.toFixed(1)}`, icon: <Clock className="w-4 h-4 text-amber-500" />, bg: "bg-amber-50  dark:bg-amber-900/20"  },
+                                        { label: "Final Prediction", value: `${pred.toFixed(2)} m³`, icon: <Target className="w-4 h-4 text-blue-500" />, bg: "bg-blue-50   dark:bg-blue-900/20" },
+                                        { label: "Models Used", value: `${allVals.length}`, icon: <Award className="w-4 h-4 text-green-500" />, bg: "bg-green-50  dark:bg-green-900/20" },
+                                        { label: "Avg Prediction", value: `${avgPred.toFixed(2)} m³`, icon: <TrendingUp className="w-4 h-4 text-teal-500" />, bg: "bg-teal-50   dark:bg-teal-900/20" },
+                                        { label: "Prediction Range", value: `${minPred.toFixed(1)} – ${maxPred.toFixed(1)}`, icon: <Clock className="w-4 h-4 text-amber-500" />, bg: "bg-amber-50  dark:bg-amber-900/20" },
                                     ].map((c, i) => (
                                         <div key={i} className="rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-800/70 backdrop-blur p-4 space-y-2">
                                             <div className={`p-2 rounded-xl w-fit ${c.bg}`}>{c.icon}</div>
@@ -477,30 +509,34 @@ export default function MLPredictionsPage() {
 
                                 {/* Charts */}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                    {/* Trend chart (decorative) */}
+                                    {/* Trend chart from real DB data */}
                                     <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl p-5">
-                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Consumption Trend</p>
+                                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Prediction Trend (Recent)</p>
                                         <div className="h-[160px]">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={trendData}>
-                                                    <defs>
-                                                        <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="5%"  stopColor="#0F766E" stopOpacity={0.2} />
-                                                            <stop offset="95%" stopColor="#0F766E" stopOpacity={0}   />
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', fontSize: '11px' }} />
-                                                    <Area  type="monotone" dataKey="actual"    stroke="#0F766E" strokeWidth={2} fill="url(#tg)" />
-                                                    <Line  type="monotone" dataKey="predicted" stroke="#F59E0B" strokeWidth={2} strokeDasharray="4 3" dot={false} />
-                                                </AreaChart>
-                                            </ResponsiveContainer>
+                                            {trendData.length > 0 ? (
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <AreaChart data={trendData}>
+                                                        <defs>
+                                                            <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+                                                                <stop offset="5%" stopColor="#0F766E" stopOpacity={0.2} />
+                                                                <stop offset="95%" stopColor="#0F766E" stopOpacity={0} />
+                                                            </linearGradient>
+                                                        </defs>
+                                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                        <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                                                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', fontSize: '11px' }} />
+                                                        <Area type="monotone" dataKey="actual" stroke="#0F766E" strokeWidth={2} fill="url(#tg)" />
+                                                        <Line type="monotone" dataKey="predicted" stroke="#F59E0B" strokeWidth={2} strokeDasharray="4 3" dot={false} />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            ) : (
+                                                <div className="flex items-center justify-center h-full text-slate-400 text-xs">No trend data yet</div>
+                                            )}
                                         </div>
                                     </div>
 
-                                    {/* Model comparison chart (REAL data) */}
+                                    {/* Model comparison chart (REAL data, final_model excluded) */}
                                     <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl p-5">
                                         <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3">Model Comparison (m³)</p>
                                         <div className="h-[160px]">
@@ -514,7 +550,7 @@ export default function MLPredictionsPage() {
                                                         fill="url(#barGrad)" />
                                                     <defs>
                                                         <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="0%"   stopColor="#0F766E" />
+                                                            <stop offset="0%" stopColor="#0F766E" />
                                                             <stop offset="100%" stopColor="#14b8a6" />
                                                         </linearGradient>
                                                     </defs>
@@ -524,27 +560,26 @@ export default function MLPredictionsPage() {
                                     </div>
                                 </div>
 
-                                {/* All model predictions table */}
+                                {/* All model predictions table (final_model excluded) */}
                                 <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl p-5">
                                     <p className="text-sm font-bold text-slate-700 dark:text-slate-200 mb-3 flex items-center gap-2">
                                         <BarChart3 className="w-4 h-4 text-primary" />
                                         All Model Predictions
                                     </p>
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                        {Object.entries(result.allPredictions).map(([name, value]) => {
-                                            const isFinal = name === "final_model";
+                                        {individualPredictions.map(([name, value]) => {
+                                            const isBest = name === result.bestModel;
                                             return (
                                                 <div key={name}
-                                                    className={`rounded-2xl p-3 border transition-all ${isFinal
+                                                    className={`rounded-2xl p-3 border transition-all ${isBest
                                                         ? "border-primary bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30"
                                                         : "border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50"
-                                                    }`}>
+                                                        }`}>
                                                     <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider truncate">{modelDisplayNames[name] || name}</p>
-                                                    <p className={`text-lg font-black mt-1 ${isFinal ? "text-primary" : "text-slate-800 dark:text-slate-100"}`}>
+                                                    <p className={`text-lg font-black mt-1`}>
                                                         {value.toFixed(2)}
                                                     </p>
                                                     <p className="text-[10px] text-slate-400">m³</p>
-                                                    {isFinal && <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-bold uppercase">Best Model</span>}
                                                 </div>
                                             );
                                         })}
@@ -554,12 +589,11 @@ export default function MLPredictionsPage() {
                                 {/* Action buttons */}
                                 <div className="flex flex-wrap items-center gap-3">
                                     {[
-                                        { label: "Export PDF",   icon: <Download  className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200" },
-                                        { label: "Export Excel", icon: <BarChart3 className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200" },
-                                        { label: "Save",         icon: <Save      className="w-4 h-4" />, style: "bg-primary to-teal-500 text-white shadow-lg shadow-primary/25" },
-                                        { label: "Share",        icon: <Share2    className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200" },
+                                        { label: "Export PDF", icon: <Download className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200", onClick: () => window.open(`${FASTAPI_BASE}/reports/export/pdf`, "_blank") },
+                                        { label: "Export Excel", icon: <BarChart3 className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200", onClick: () => window.open(`${FASTAPI_BASE}/reports/export/excel`, "_blank") },
+                                        { label: "Export CSV", icon: <Download className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200", onClick: () => window.open(`${FASTAPI_BASE}/reports/export/csv`, "_blank") },
                                     ].map((btn, i) => (
-                                        <button key={i} className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-medium hover:-translate-y-0.5 transition-all ${btn.style}`}>
+                                        <button key={i} onClick={btn.onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-medium hover:-translate-y-0.5 transition-all ${btn.style}`}>
                                             {btn.icon}{btn.label}
                                         </button>
                                     ))}
@@ -570,14 +604,17 @@ export default function MLPredictionsPage() {
                 </div>
             </div>
 
-            {/* ── History Table ── */}
-            <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl shadow-xl overflow-hidden">
+            {/* ── History Table — fetched from PostgreSQL ── */}
+            {/* <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl shadow-xl overflow-hidden">
                 <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-primary" />
                         <h3 className="font-bold text-slate-800 dark:text-slate-100">Prediction History</h3>
                         <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-semibold">{history.length}</span>
                     </div>
+                    <button onClick={fetchHistory} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 hover:border-primary/40 transition-all">
+                        <RefreshCcw className={`w-3.5 h-3.5 ${historyLoading ? "animate-spin" : ""}`} /> Refresh
+                    </button>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -590,38 +627,55 @@ export default function MLPredictionsPage() {
                                 <th className="px-6 py-3 text-right">Sep (m³)</th>
                                 <th className="px-6 py-3 text-right">Oct (m³)</th>
                                 <th className="px-6 py-3 text-right">Predicted Nov (m³)</th>
-                                <th className="px-6 py-3">Model</th>
+                                <th className="px-6 py-3">Status</th>
                                 <th className="px-6 py-3">Date</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {history.length === 0 && (
+                            {historyLoading && (
+                                <tr>
+                                    <td colSpan={8} className="px-6 py-8 text-center text-slate-400 text-sm">
+                                        <div className="flex items-center justify-center gap-2">
+                                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                            Loading prediction history...
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                            {!historyLoading && history.length === 0 && (
                                 <tr>
                                     <td colSpan={8} className="px-6 py-8 text-center text-slate-400 text-sm">
                                         No predictions yet. Use the form to generate your first prediction.
                                     </td>
                                 </tr>
                             )}
-                            {history.map((h) => (
-                                <tr key={h.id} className="border-b last:border-0 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                                    <td className="px-6 py-3 font-mono text-xs text-primary font-semibold">{h.id}</td>
-                                    <td className="px-6 py-3 font-medium text-slate-800 dark:text-slate-100">{h.branch}</td>
-                                    <td className="px-6 py-3 text-slate-500 text-xs">{h.zone}</td>
-                                    <td className="px-6 py-3 text-right text-slate-600 dark:text-slate-300">{h.september}</td>
-                                    <td className="px-6 py-3 text-right text-slate-600 dark:text-slate-300">{h.october}</td>
-                                    <td className="px-6 py-3 text-right font-bold text-teal-600">{h.predicted.toFixed(2)}</td>
-                                    <td className="px-6 py-3 text-xs">
-                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                                            {h.model}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-3 text-slate-400 text-xs">{h.date}</td>
-                                </tr>
-                            ))}
+                            {!historyLoading && history.map((h) => {
+                                const statusClass = h.prediction_status === "high"
+                                    ? "bg-amber-50 text-amber-600 dark:bg-amber-900/20"
+                                    : h.prediction_status === "anomaly"
+                                    ? "bg-red-50 text-red-600 dark:bg-red-900/20"
+                                    : "bg-green-50 text-green-600 dark:bg-green-900/20";
+                                return (
+                                    <tr key={h.id} className="border-b last:border-0 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
+                                        <td className="px-6 py-3 font-mono text-xs text-primary font-semibold">{h.id}</td>
+                                        <td className="px-6 py-3 font-medium text-slate-800 dark:text-slate-100">{h.branch}</td>
+                                        <td className="px-6 py-3 text-slate-500 text-xs">{h.zone}</td>
+                                        <td className="px-6 py-3 text-right text-slate-600 dark:text-slate-300">{h.september_consumption}</td>
+                                        <td className="px-6 py-3 text-right text-slate-600 dark:text-slate-300">{h.october_consumption}</td>
+                                        <td className="px-6 py-3 text-right font-bold text-teal-600">{h.final_prediction.toFixed(2)}</td>
+                                        <td className="px-6 py-3 text-xs">
+                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium capitalize ${statusClass}`}>
+                                                {h.prediction_status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-3 text-slate-400 text-xs">{new Date(h.created_at).toLocaleDateString()}</td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </div> */}
         </div>
     );
 }
