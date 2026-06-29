@@ -31,12 +31,14 @@ export default function ReportsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState("All");
+    const [exporting, setExporting] = useState<string | null>(null);
+    const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
     const fetchReportData = async () => {
         try {
             setLoading(true);
             setError(null);
-            
+
             const [summaryRes, chartsRes] = await Promise.all([
                 fetch(`${FASTAPI_BASE}/reports/summary`),
                 fetch(`${FASTAPI_BASE}/reports/charts`)
@@ -69,14 +71,45 @@ export default function ReportsPage() {
         { label: "Validated Predictions", value: stats.validated_predictions.toLocaleString(), icon: <CheckCircle className="w-5 h-5" />, color: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-900/20" },
     ] : [];
 
+    const fileExtMap: Record<string, string> = { pdf: ".pdf", excel: ".xlsx", csv: ".csv" };
+    const mimeMap: Record<string, string> = {
+        pdf: "application/pdf",
+        excel: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        csv: "text/csv",
+    };
+
     const reports = [
         { name: "ML Model Accuracy Report - Q4 2026", date: "June 2026", format: "pdf" },
         { name: "Water Consumption Prediction Summary", date: "June 2026", format: "excel" },
         { name: "Zone-wise Billing Forecast", date: "June 2026", format: "csv" }
     ];
 
-    const handleExport = (format: string) => {
-        window.open(`${FASTAPI_BASE}/reports/export/${format}`, "_blank");
+    const handleExport = async (format: string) => {
+        try {
+            setExporting(format);
+            setExportSuccess(null);
+
+            const res = await fetch(`${FASTAPI_BASE}/reports/export/${format}`);
+            if (!res.ok) throw new Error(`Export failed (${res.status})`);
+
+            const blob = await res.blob();
+            const ext = fileExtMap[format] || `.${format}`;
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `prediction_history_report${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+
+            setExportSuccess(format);
+            setTimeout(() => setExportSuccess(null), 3000);
+        } catch (err: any) {
+            setError(err.message || `Failed to export ${format.toUpperCase()} report.`);
+        } finally {
+            setExporting(null);
+        }
     };
 
     return (
@@ -85,7 +118,7 @@ export default function ReportsPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                     <h2 className="text-3xl font-bold font-heading text-slate-800 dark:text-slate-100">
-                        Water Bill Prediction Reports
+                        Water Consumption Prediction Reports
                     </h2>
                     <p className="text-slate-500 text-sm mt-1">
                         ML-based water consumption analytics and billing forecasts from PostgreSQL.
@@ -98,18 +131,38 @@ export default function ReportsPage() {
                                 key={m}
                                 onClick={() => setActiveTab(m)}
                                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === m
-                                        ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
-                                        : "text-slate-500 hover:text-slate-700"
+                                    ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
+                                    : "text-slate-500 hover:text-slate-700"
                                     }`}
                             >
                                 {m}
                             </button>
                         ))}
                     </div>
-                    <Button onClick={() => handleExport("pdf")} className="gap-2 shadow-lg shadow-primary/20">
-                        <Download className="w-4 h-4" />
-                        Export PDF
-                    </Button>
+                    <button
+                        onClick={() => handleExport("pdf")}
+                        disabled={exporting === "pdf"}
+                        className="flex items-center justify-center gap-2 h-10 px-5 rounded-xl bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-700 hover:to-rose-600 text-white font-semibold text-xs uppercase tracking-wider shadow-md shadow-red-500/20 hover:shadow-lg hover:shadow-red-500/30 transition-all duration-200 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                        {exporting === "pdf" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        {exporting === "pdf" ? "Exporting..." : "Export PDF"}
+                    </button>
+                    <button
+                        onClick={() => handleExport("excel")}
+                        disabled={exporting === "excel"}
+                        className="flex items-center justify-center gap-2 h-10 px-5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-semibold text-xs uppercase tracking-wider shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30 transition-all duration-200 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                        {exporting === "excel" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                        {exporting === "excel" ? "Exporting..." : "Export Excel"}
+                    </button>
+                    {/* <button
+                        onClick={() => handleExport("csv")}
+                        disabled={exporting === "csv"}
+                        className="flex items-center justify-center gap-2 h-10 px-5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-700 hover:to-indigo-600 text-white font-semibold text-xs uppercase tracking-wider shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30 transition-all duration-200 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                        {exporting === "csv" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                        {exporting === "csv" ? "Exporting..." : "Export CSV"}
+                    </button> */}
                 </div>
             </div>
 
@@ -117,6 +170,16 @@ export default function ReportsPage() {
             {error && (
                 <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 text-sm">
                     {error}
+                </div>
+            )}
+
+            {/* Export success toast */}
+            {exportSuccess && (
+                <div className="fixed top-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-xl bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 shadow-lg animate-in slide-in-from-top-2">
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                    <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                        {exportSuccess.toUpperCase()} report downloaded successfully!
+                    </span>
                 </div>
             )}
 
@@ -243,7 +306,7 @@ export default function ReportsPage() {
                         </Card>
 
                         {/* Generated Reports */}
-                        <Card>
+                        {/* <Card>
                             <CardHeader>
                                 <CardTitle className="text-lg">Download Live Reports</CardTitle>
                             </CardHeader>
@@ -262,13 +325,13 @@ export default function ReportsPage() {
                                                 <p className="text-xs text-slate-400">{report.date}</p>
                                             </div>
                                         </div>
-                                        <Button onClick={() => handleExport(report.format)} variant="ghost" size="icon" className="text-slate-400 group-hover:text-primary h-7 w-7 shrink-0">
-                                            <Download className="w-3.5 h-3.5" />
+                                        <Button onClick={() => handleExport(report.format)} disabled={exporting === report.format} variant="ghost" size="icon" className="text-slate-400 group-hover:text-primary h-7 w-7 shrink-0">
+                                            {exporting === report.format ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                                         </Button>
                                     </div>
                                 ))}
                             </CardContent>
-                        </Card>
+                        </Card> */}
                     </div>
                 </>
             )}

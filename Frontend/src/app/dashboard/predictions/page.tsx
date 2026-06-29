@@ -171,6 +171,10 @@ export default function MLPredictionsPage() {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [history, setHistory] = useState<HistoryRow[]>([]);
     const [historyLoading, setHistoryLoading] = useState(true);
+    const [exporting, setExporting] = useState<string | null>(null);
+    const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+    const [exportMenuOpen, setExportMenuOpen] = useState(false);
+    const exportRef = useRef<HTMLDivElement>(null);
 
     // ── Load prediction history from PostgreSQL on mount ──
     const fetchHistory = async () => {
@@ -189,6 +193,46 @@ export default function MLPredictionsPage() {
     };
 
     useEffect(() => { fetchHistory(); }, []);
+
+    // Close export dropdown on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportMenuOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    // ── Export handler — fetches file as blob and triggers download ──
+    const handleExport = async (format: string) => {
+        const fileExtMap: Record<string, string> = { pdf: ".pdf", excel: ".xlsx", csv: ".csv" };
+        try {
+            setExporting(format);
+            setExportMenuOpen(false);
+            setExportSuccess(null);
+
+            const res = await fetch(`${FASTAPI_BASE}/reports/export/${format}`);
+            if (!res.ok) throw new Error(`Export failed (${res.status})`);
+
+            const blob = await res.blob();
+            const ext = fileExtMap[format] || `.${format}`;
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `prediction_history_report${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+
+            setExportSuccess(format);
+            setTimeout(() => setExportSuccess(null), 3000);
+        } catch (err: unknown) {
+            setApiError(`Failed to export ${format.toUpperCase()} report. Make sure the backend is running.`);
+        } finally {
+            setExporting(null);
+        }
+    };
 
     const validate = () => {
         const e: Record<string, string> = {};
@@ -297,17 +341,50 @@ export default function MLPredictionsPage() {
                     <p className="text-slate-500 text-sm mt-1 ml-1">Water consumption forecasting powered by machine learning — predicts November consumption.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => window.open(`${FASTAPI_BASE}/reports/export/csv`, "_blank")}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-600 dark:text-slate-300 hover:border-primary/40 transition-all">
-                        <Download className="w-4 h-4" /> Export
-                    </button>
+                    {/* Export dropdown */}
+                    <div className="relative" ref={exportRef}>
+                        <button
+                            onClick={() => setExportMenuOpen(!exportMenuOpen)}
+                            disabled={!!exporting}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-600 dark:text-slate-300 hover:border-primary/40 transition-all disabled:opacity-60">
+                            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                            {exporting ? "Exporting..." : "Export"}
+                            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {exportMenuOpen && (
+                            <div className="absolute right-0 z-20 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden">
+                                {[
+                                    { label: "Download PDF", format: "pdf", icon: <FileText className="w-4 h-4 text-red-500" /> },
+                                    { label: "Download Excel", format: "excel", icon: <FileText className="w-4 h-4 text-green-600" /> },
+                                    { label: "Download CSV", format: "csv", icon: <FileText className="w-4 h-4 text-blue-500" /> },
+                                ].map((item) => (
+                                    <button
+                                        key={item.format}
+                                        onClick={() => handleExport(item.format)}
+                                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-primary/5 hover:text-primary transition-colors">
+                                        {item.icon}
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
                         <span className="text-xs font-medium text-green-600 dark:text-green-400">Auto-Save ON</span>
                     </div>
                 </div>
             </div>
+
+            {/* Export success toast */}
+            {exportSuccess && (
+                <div className="fixed top-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-xl bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 shadow-lg">
+                    <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                        {exportSuccess.toUpperCase()} report downloaded successfully!
+                    </span>
+                </div>
+            )}
 
             {/* ── Main grid ── */}
             <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
@@ -589,12 +666,14 @@ export default function MLPredictionsPage() {
                                 {/* Action buttons */}
                                 <div className="flex flex-wrap items-center gap-3">
                                     {[
-                                        { label: "Export PDF", icon: <Download className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200", onClick: () => window.open(`${FASTAPI_BASE}/reports/export/pdf`, "_blank") },
-                                        { label: "Export Excel", icon: <BarChart3 className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200", onClick: () => window.open(`${FASTAPI_BASE}/reports/export/excel`, "_blank") },
-                                        { label: "Export CSV", icon: <Download className="w-4 h-4" />, style: "border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200", onClick: () => window.open(`${FASTAPI_BASE}/reports/export/csv`, "_blank") },
+                                        { label: "Export PDF", format: "pdf", icon: <Download className="w-4 h-4" />, loadingIcon: <Loader2 className="w-4 h-4 animate-spin" />, className: "bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-700 hover:to-rose-600 text-white shadow-md shadow-red-500/20 hover:shadow-lg hover:shadow-red-500/30" },
+                                        { label: "Export Excel", format: "excel", icon: <BarChart3 className="w-4 h-4" />, loadingIcon: <Loader2 className="w-4 h-4 animate-spin" />, className: "bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white shadow-md shadow-emerald-500/20 hover:shadow-lg hover:shadow-emerald-500/30" },
+                                        { label: "Export CSV", format: "csv", icon: <Download className="w-4 h-4" />, loadingIcon: <Loader2 className="w-4 h-4 animate-spin" />, className: "bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-700 hover:to-indigo-600 text-white shadow-md shadow-blue-500/20 hover:shadow-lg hover:shadow-blue-500/30" },
                                     ].map((btn, i) => (
-                                        <button key={i} onClick={btn.onClick} className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-medium hover:-translate-y-0.5 transition-all ${btn.style}`}>
-                                            {btn.icon}{btn.label}
+                                        <button key={i} onClick={() => handleExport(btn.format)} disabled={exporting === btn.format}
+                                            className={`flex items-center justify-center gap-2 h-10 px-5 rounded-xl font-semibold text-xs uppercase tracking-wider transition-all duration-200 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap ${btn.className}`}>
+                                            {exporting === btn.format ? btn.loadingIcon : btn.icon}
+                                            {exporting === btn.format ? "Exporting..." : btn.label}
                                         </button>
                                     ))}
                                 </div>

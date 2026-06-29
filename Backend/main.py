@@ -8,7 +8,6 @@ from fastapi import (
 
 import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import inspect
 import urllib.request
 import json
 import io
@@ -27,17 +26,6 @@ from models import Customer, PredictionHistory, User
 import schemas
 import crud
 from fastapi.middleware.cors import CORSMiddleware
-
-# Drop old prediction_history table if it exists to avoid column mismatch
-inspector = inspect(engine)
-if "prediction_history" in inspector.get_table_names():
-    try:
-        from sqlalchemy import text as sa_text
-        with engine.begin() as conn:
-            conn.execute(sa_text("DROP TABLE prediction_history CASCADE"))
-        print("Dropped old prediction_history table successfully.")
-    except Exception as e:
-        print(f"Note: Could not drop prediction_history table: {e}")
 
 Base.metadata.create_all(
     bind=engine
@@ -551,15 +539,14 @@ def export_csv(db: Session = Depends(get_db)):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "ID", "Customer Name", "Meter Number", "Branch", "Zone", 
+        "ID", "Meter Number", "Branch", "Zone", 
         "Sep Consumption (m³)", "Oct Consumption (m³)", "ML Prediction (m³)", "Status", "Date"
     ])
     
     for p in predictions:
-        cust_name = p.customer.Customer_Name if p.customer else "Unknown Customer"
         date_str = p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else ""
         writer.writerow([
-            p.id, cust_name, p.meter_number, p.branch, p.zone,
+            p.id, p.meter_number, p.branch, p.zone,
             p.september_consumption, p.october_consumption, p.final_prediction,
             p.prediction_status, date_str
         ])
@@ -577,11 +564,9 @@ def export_excel(db: Session = Depends(get_db)):
     predictions = db.query(PredictionHistory).all()
     data = []
     for p in predictions:
-        cust_name = p.customer.Customer_Name if p.customer else "Unknown Customer"
         date_str = p.created_at.strftime("%Y-%m-%d %H:%M:%S") if p.created_at else ""
         data.append({
             "ID": p.id,
-            "Customer Name": cust_name,
             "Meter Number": p.meter_number,
             "Branch": p.branch,
             "Zone": p.zone,
@@ -637,14 +622,10 @@ def export_pdf(db: Session = Depends(get_db)):
     elements.append(Paragraph(f"Generated Date: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} (UTC)", normal_style))
     elements.append(Spacer(1, 15))
     
-    data = [["ID", "Customer Name", "Meter No", "Branch", "Zone", "Sep (m³)", "Oct (m³)", "ML Pred (m³)", "Status"]]
+    data = [["ID", "Meter No", "Branch", "Zone", "Sep (m³)", "Oct (m³)", "ML Pred (m³)", "Status"]]
     for p in predictions:
-        cust_name = p.customer.Customer_Name if p.customer else "Unknown Customer"
-        if len(cust_name) > 15:
-            cust_name = cust_name[:12] + "..."
         data.append([
             str(p.id),
-            cust_name,
             str(p.meter_number or ""),
             str(p.branch or ""),
             str(p.zone or ""),
@@ -654,7 +635,7 @@ def export_pdf(db: Session = Depends(get_db)):
             str(p.prediction_status)
         ])
         
-    t = Table(data, colWidths=[25, 95, 60, 75, 75, 50, 50, 70, 50])
+    t = Table(data, colWidths=[30, 80, 90, 90, 60, 60, 80, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F766E')),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
