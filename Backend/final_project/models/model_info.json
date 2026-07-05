@@ -1,6 +1,6 @@
 {
     "target_column": "November",
-    "final_model": "Tuned XGBoost",
+    "final_model": "Linear Regression",
     "training_features": [
         "September",
         "October",
