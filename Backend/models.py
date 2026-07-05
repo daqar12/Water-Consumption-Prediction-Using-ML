@@ -1,8 +1,13 @@
 from sqlalchemy import (
     Column,
     Integer,
-    String
+    String,
+    Float,
+    DateTime,
+    ForeignKey
 )
+from sqlalchemy.orm import relationship
+import datetime
 
 from database import Base
 
@@ -84,6 +89,111 @@ class Customer(Base):
     november = Column(
         Integer
     )
+
+
+# make prdictions history table
+class PredictionHistory(Base):
+    __tablename__ = "prediction_history"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    meter_number = Column(
+        String(50),
+        nullable=True
+    )
+
+    branch = Column(
+        String(100),
+        nullable=False
+    )
+
+    zone = Column(
+        String(100),
+        nullable=False
+    )
+
+    september_consumption = Column(
+        Float,
+        nullable=False
+    )
+
+    october_consumption = Column(
+        Float,
+        nullable=False
+    )
+
+    decision_tree_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    gradient_boosting_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    linear_regression_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    random_forest_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    tuned_random_forest_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    tuned_xgboost_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    xgboost_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    final_prediction = Column(
+        Float,
+        nullable=False
+    )
+
+    prediction_status = Column(
+        String(50),
+        nullable=False
+    )
+
+    notes = Column(
+        String(500),
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow
+    )
+
+    updated_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow
+    )
+
+    customer = relationship("Customer", backref="predictions")
 
 
 

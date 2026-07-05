@@ -14,7 +14,7 @@ CORS(server)
 with open("models/model_info.json", "r") as f:
     model_info = json.load(f)
 
-BEST_MODEL_NAME = model_info["best_model"]
+FINAL_MODEL_NAME = model_info["final_model"]
 
 # =====================================================
 # LOAD ALL MODELS
@@ -26,7 +26,8 @@ MODELS = {
     "gradient_boosting": joblib.load("models/gradient_boosting.joblib"),
     "xgboost": joblib.load("models/xgboost.joblib"),
     "tuned_random_forest": joblib.load("models/tuned_random_forest.joblib"),
-    "tuned_xgboost": joblib.load("models/tuned_xgboost.joblib")
+    "tuned_xgboost": joblib.load("models/tuned_xgboost.joblib"),
+    "final_model": joblib.load("models/final_model.joblib")
 }
 
 # =====================================================
@@ -39,9 +40,9 @@ def home():
     return jsonify({
         "project": "Water Consumption Prediction API",
         "target": "November Consumption",
-        "best_model": BEST_MODEL_NAME,
+        "best_model": FINAL_MODEL_NAME,
         "available_models": list(MODELS.keys()),
-        "prediction_endpoint": "/predict?model=tuned_xgboost",
+        "prediction_endpoint": "/predict?model=final_model",
         "required_fields": {
             "September": "number",
             "October": "number",
@@ -60,7 +61,7 @@ def predict():
 
     model_name = request.args.get(
         "model",
-        "tuned_xgboost"
+        "final_model"
     ).lower()
 
     if model_name not in MODELS:
@@ -97,7 +98,7 @@ def predict():
 
         return jsonify({
             "model": model_name,
-            "best_model": BEST_MODEL_NAME,
+            "best_model": FINAL_MODEL_NAME,
             "input": input_data,
             "predicted_november_consumption": round(prediction, 2)
         })
@@ -146,7 +147,7 @@ def predict_all():
             )
 
         return jsonify({
-            "best_model": BEST_MODEL_NAME,
+            "best_model": FINAL_MODEL_NAME,
             "input": input_data,
             "predictions": predictions
         })
