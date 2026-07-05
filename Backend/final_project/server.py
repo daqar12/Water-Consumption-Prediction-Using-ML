@@ -2,16 +2,20 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import joblib
 import json
+from pathlib import Path
 
 from utils import prepare_features_from_row
 
 server = Flask(__name__)
 CORS(server)
 
+BASE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = BASE_DIR / "models"
+
 # =====================================================
 # LOAD MODEL INFO
 # =====================================================
-with open("models/model_info.json", "r") as f:
+with open(MODELS_DIR / "model_info.json", "r") as f:
     model_info = json.load(f)
 
 FINAL_MODEL_NAME = model_info["final_model"]
@@ -20,14 +24,14 @@ FINAL_MODEL_NAME = model_info["final_model"]
 # LOAD ALL MODELS
 # =====================================================
 MODELS = {
-    "linear_regression": joblib.load("models/linear_regression.joblib"),
-    "decision_tree": joblib.load("models/decision_tree.joblib"),
-    "random_forest": joblib.load("models/random_forest.joblib"),
-    "gradient_boosting": joblib.load("models/gradient_boosting.joblib"),
-    "xgboost": joblib.load("models/xgboost.joblib"),
-    "tuned_random_forest": joblib.load("models/tuned_random_forest.joblib"),
-    "tuned_xgboost": joblib.load("models/tuned_xgboost.joblib"),
-    "final_model": joblib.load("models/final_model.joblib")
+    "linear_regression": joblib.load(MODELS_DIR / "linear_regression.joblib"),
+    "decision_tree": joblib.load(MODELS_DIR / "decision_tree.joblib"),
+    "random_forest": joblib.load(MODELS_DIR / "random_forest.joblib"),
+    "gradient_boosting": joblib.load(MODELS_DIR / "gradient_boosting.joblib"),
+    "xgboost": joblib.load(MODELS_DIR / "xgboost.joblib"),
+    "tuned_random_forest": joblib.load(MODELS_DIR / "tuned_random_forest.joblib"),
+    "tuned_xgboost": joblib.load(MODELS_DIR / "tuned_xgboost.joblib"),
+    "final_model": joblib.load(MODELS_DIR / "final_model.joblib")
 }
 
 # =====================================================

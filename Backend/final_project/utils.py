@@ -1,12 +1,18 @@
 import pandas as pd
 import joblib
 import json
+from pathlib import Path
 
 # =====================================================
 # LOAD TRAINING ARTIFACTS
 # =====================================================
-TRAIN_COLS = json.load(open("models/water_consumption_train_cols.json"))
-SCALER = joblib.load("models/water_consumption_scaler.pkl")
+BASE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = BASE_DIR / "models"
+
+with open(MODELS_DIR / "water_consumption_train_cols.json", "r") as f:
+    TRAIN_COLS = json.load(f)
+
+SCALER = joblib.load(MODELS_DIR / "water_consumption_scaler.pkl")
 
 # =====================================================
 # PREPARE FEATURES
@@ -31,7 +37,7 @@ def prepare_features_from_row(record: dict) -> pd.DataFrame:
     consumption_diff = october - september
 
     growth_rate = (
-        (october - september) / (september + 1)
+        (october - september) / (september + 0.1)
     )
 
     # =================================================
@@ -53,18 +59,24 @@ def prepare_features_from_row(record: dict) -> pd.DataFrame:
             row[col] = value
 
     # =================================================
-    # ONE-HOT ENCODE BRANCH
+    # ONE-HOT ENCODE CATEGORICAL FEATURES
     # =================================================
-    branch_col = f"Branch_{branch}"
-    if branch_col in row:
-        row[branch_col] = 1
+    def set_one_hot(prefix: str, value: str) -> None:
+        direct_col = f"{prefix}_{value}"
+        if direct_col in row:
+            row[direct_col] = 1
+            return
 
-    # =================================================
-    # ONE-HOT ENCODE ZONE
-    # =================================================
-    zone_col = f"Zone_{zone}"
-    if zone_col in row:
-        row[zone_col] = 1
+        normalized_value = value.strip().lower()
+        for col in row:
+            if col.startswith(f"{prefix}_"):
+                trained_value = col.split("_", 1)[1]
+                if trained_value.strip().lower() == normalized_value:
+                    row[col] = 1
+                    return
+
+    set_one_hot("Branch", branch)
+    set_one_hot("Zone", zone)
 
     # =================================================
     # CREATE DATAFRAME

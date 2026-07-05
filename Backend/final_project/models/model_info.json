@@ -1,6 +1,28 @@
 {
     "target_column": "November",
     "final_model": "Linear Regression",
+    "selected_for_tuning": [
+        "Linear Regression",
+        "Decision Tree",
+        "Random Forest"
+    ],
+    "tuned_models": [
+        "Tuned Linear Regression",
+        "Tuned Decision Tree",
+        "Tuned Random Forest"
+    ],
+    "model_files": {
+        "Linear Regression": "models/linear_regression.joblib",
+        "Decision Tree": "models/decision_tree.joblib",
+        "Random Forest": "models/random_forest.joblib",
+        "Gradient Boosting": "models/gradient_boosting.joblib",
+        "XGBoost": "models/xgboost.joblib",
+        "Tuned Linear Regression": "models/tuned_linear_regression.joblib",
+        "Tuned Decision Tree": "models/tuned_decision_tree.joblib",
+        "Tuned Random Forest": "models/tuned_random_forest.joblib",
+        "Tuned XGBoost": "models/tuned_xgboost.joblib",
+        "Final Model": "models/final_model.joblib"
+    },
     "training_features": [
         "September",
         "October",
@@ -35,5 +57,21 @@
         "Zone_Warlalis",
         "Zone_Yaaqshiid",
         "Zone_Zope"
-    ]
+    ],
+    "final_selection_metrics": {
+        "Display Model": "Linear Regression",
+        "Version": "Untuned",
+        "MAE": 3.340233206932396,
+        "RMSE": 11.413981284377677,
+        "R\u00b2 Score": 0.9834306908426841,
+        "CV MAE Mean": 3.413036156304674,
+        "CV RMSE Mean": 13.83952506137797,
+        "CV R\u00b2 Mean": 0.8378903632419175,
+        "CV R\u00b2 Std": 0.1917043660971018,
+        "Test R\u00b2 Rank": 1.0,
+        "Test RMSE Rank": 1.0,
+        "CV R\u00b2 Rank": 1.0,
+        "CV RMSE Rank": 1.0,
+        "Composite Rank Score": 4.0
+    }
 }
