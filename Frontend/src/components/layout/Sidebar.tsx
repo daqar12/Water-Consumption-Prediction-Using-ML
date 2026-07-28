@@ -33,7 +33,7 @@ const menuItems = [
 ];
 
 // Pages hidden from staff
-const STAFF_HIDDEN = ["/dashboard/users", "/dashboard/settings"];
+const STAFF_HIDDEN = ["/dashboard/users", "/dashboard/settings", "/dashboard/reports"];
 
 export function Sidebar() {
   const pathname = usePathname();

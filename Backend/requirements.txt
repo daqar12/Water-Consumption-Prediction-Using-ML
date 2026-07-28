@@ -1,13 +1,13 @@
 #uvicorn main:app --reload
-fastapi==0.95.2
-pydantic==2.6.2     
-sqlalchemy==1.4.32
-psycopg2-binary==2.9.5
-python-multipart==0.0.6
-python-jose==3.3.0
-python-jose-cryptography==3.3.0
-python-jwt==2.7.0
+fastapi==0.115.6
+pydantic==2.10.4
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+python-multipart==0.0.20
+python-jose[cryptography]==3.3.0
+PyJWT==2.7.0
 python-dotenv==1.0.0
+uvicorn[standard]
 flask
 flask-cors
 pandas

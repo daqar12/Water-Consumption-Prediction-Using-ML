@@ -64,7 +64,7 @@ export default function LoginPage() {
               Welcome Back
             </CardTitle>
             <p className="text-slate-500 text-sm">
-              Sign in to Water Bill Prediction
+              Sign in to Water Consumption Prediction
             </p>
           </CardHeader>
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all text-sm"
-                  placeholder="admin@adt.org"
+                  placeholder="admin@gmail.com"
                 />
               </div>
 
@@ -96,12 +96,7 @@ export default function LoginPage() {
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                     Password
                   </label>
-                  <a
-                    href="#"
-                    className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                  >
-                    Forgot Password?
-                  </a>
+                  
                 </div>
                 <input
                   type="password"

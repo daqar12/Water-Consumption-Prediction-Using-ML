@@ -13,6 +13,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     LineChart, Line, Area, AreaChart
 } from "recharts";
+import { authHeaders } from "@/lib/session";
 
 // ── API endpoint — FastAPI backend (runs ML + auto-saves to PostgreSQL) ──
 const FASTAPI_BASE = "http://127.0.0.1:8000";
@@ -180,7 +181,9 @@ export default function MLPredictionsPage() {
     const fetchHistory = async () => {
         try {
             setHistoryLoading(true);
-            const res = await fetch(`${FASTAPI_BASE}/predictions?limit=50&sort_order=desc`);
+            const res = await fetch(`${FASTAPI_BASE}/predictions?limit=50&sort_order=desc`, {
+                headers: { ...authHeaders() },
+            });
             if (res.ok) {
                 const data = await res.json();
                 setHistory(data.data || []);
@@ -211,7 +214,9 @@ export default function MLPredictionsPage() {
             setExportMenuOpen(false);
             setExportSuccess(null);
 
-            const res = await fetch(`${FASTAPI_BASE}/reports/export/${format}`);
+            const res = await fetch(`${FASTAPI_BASE}/reports/export/${format}`, {
+                headers: { ...authHeaders() },
+            });
             if (!res.ok) throw new Error(`Export failed (${res.status})`);
 
             const blob = await res.blob();
@@ -234,14 +239,70 @@ export default function MLPredictionsPage() {
         }
     };
 
+    // ── Consumption validation helper ──
+    const MIN_CONSUMPTION = 0.5;
+    const MAX_CONSUMPTION = 100000;
+
+    const validateConsumptionField = (value: string, fieldName: string): string => {
+        if (!value || value.trim() === "") return `Enter a valid ${fieldName} value.`;
+
+        // Reject non-numeric patterns
+        if (/[^0-9.]/.test(value)) return `${fieldName} must be a numeric value.`;
+        if ((value.match(/\./g) || []).length > 1) return `${fieldName} has an invalid format.`;
+
+        const num = Number(value);
+        if (isNaN(num) || !isFinite(num)) return `${fieldName} must be a valid number.`;
+        if (num < MIN_CONSUMPTION) return "Water consumption must be at least 0.5 m\u00b3.";
+        if (num > MAX_CONSUMPTION) return `${fieldName} must be between ${MIN_CONSUMPTION} and ${MAX_CONSUMPTION.toLocaleString()} m\u00b3.`;
+
+        // Max 2 decimal places
+        const parts = value.split(".");
+        if (parts.length === 2 && parts[1].length > 2) return `${fieldName} allows a maximum of 2 decimal places.`;
+
+        return "";
+    };
+
     const validate = () => {
         const e: Record<string, string> = {};
-        if (!september || isNaN(Number(september))) e.september = "Enter a valid September value";
-        if (!october || isNaN(Number(october))) e.october = "Enter a valid October value";
+        const sepErr = validateConsumptionField(september, "September");
+        if (sepErr) e.september = sepErr;
+        const octErr = validateConsumptionField(october, "October");
+        if (octErr) e.october = octErr;
         if (!branch) e.branch = "Please select a branch";
         if (!zone) e.zone = "Please select a zone";
         setErrors(e);
         return Object.keys(e).length === 0;
+    };
+
+    // Check if form is complete and valid (for button disable)
+    const isFormValid = (() => {
+        if (!september || !october || !branch || !zone) return false;
+        if (validateConsumptionField(september, "September")) return false;
+        if (validateConsumptionField(october, "October")) return false;
+        return true;
+    })();
+
+    // Block invalid characters on number inputs
+    const blockInvalidKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (["e", "E", "+", "-", " "].includes(e.key)) e.preventDefault();
+    };
+
+    // Sanitize pasted content
+    const handlePaste = (
+        e: React.ClipboardEvent<HTMLInputElement>,
+        setter: (v: string) => void,
+        field: "september" | "october",
+        fieldName: string
+    ) => {
+        e.preventDefault();
+        const text = e.clipboardData.getData("text").trim();
+        // Only allow digits and single dot
+        if (/^\d*\.?\d*$/.test(text)) {
+            setter(text);
+            setErrors((p) => ({ ...p, [field]: validateConsumptionField(text, fieldName) }));
+        } else {
+            setErrors((p) => ({ ...p, [field]: "Pasted value is not a valid number." }));
+        }
     };
 
     // ── Generate Prediction → calls FastAPI → runs ML → auto-saves to PostgreSQL ──
@@ -263,7 +324,7 @@ export default function MLPredictionsPage() {
             // POST /predictions — FastAPI runs the ML model AND saves to PostgreSQL automatically
             const res = await fetch(`${FASTAPI_BASE}/predictions`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...authHeaders() },
                 body: JSON.stringify(payload),
             });
 
@@ -412,11 +473,21 @@ export default function MLPredictionsPage() {
                             <input
                                 type="number"
                                 value={september}
-                                onChange={(e) => { setSeptember(e.target.value); setErrors((p) => ({ ...p, september: "" })); }}
+                                min="0.5"
+                                max="100000"
+                                step="0.01"
+                                onKeyDown={blockInvalidKeys}
+                                onPaste={(e) => handlePaste(e, setSeptember, "september", "September")}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSeptember(val);
+                                    const err = validateConsumptionField(val, "September");
+                                    setErrors((p) => ({ ...p, september: err }));
+                                }}
                                 placeholder="e.g. 15"
-                                className={`w-full px-4 py-3 rounded-2xl border ${errors.september ? "border-red-400" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all`}
+                                className={`w-full px-4 py-3 rounded-2xl border ${errors.september ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all`}
                             />
-                            {errors.september && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.september}</p>}
+                            {errors.september && <p className="text-xs text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" />{errors.september}</p>}
                         </div>
 
                         {/* October Consumption */}
@@ -427,11 +498,21 @@ export default function MLPredictionsPage() {
                             <input
                                 type="number"
                                 value={october}
-                                onChange={(e) => { setOctober(e.target.value); setErrors((p) => ({ ...p, october: "" })); }}
+                                min="0.5"
+                                max="100000"
+                                step="0.01"
+                                onKeyDown={blockInvalidKeys}
+                                onPaste={(e) => handlePaste(e, setOctober, "october", "October")}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setOctober(val);
+                                    const err = validateConsumptionField(val, "October");
+                                    setErrors((p) => ({ ...p, october: err }));
+                                }}
                                 placeholder="e.g. 12"
-                                className={`w-full px-4 py-3 rounded-2xl border ${errors.october ? "border-red-400" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all`}
+                                className={`w-full px-4 py-3 rounded-2xl border ${errors.october ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all`}
                             />
-                            {errors.october && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.october}</p>}
+                            {errors.october && <p className="text-xs text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" />{errors.october}</p>}
                         </div>
 
                         {/* Branch */}
@@ -469,7 +550,7 @@ export default function MLPredictionsPage() {
                         )}
 
                         {/* CTA */}
-                        <button onClick={handlePredict} disabled={loading}
+                        <button onClick={handlePredict} disabled={loading || !isFormValid}
                             className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-primary to-teal-500 text-white font-bold text-sm shadow-lg shadow-primary/30 hover:shadow-primary/50 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 disabled:cursor-not-allowed transition-all duration-200">
                             {loading
                                 ? <><Loader2 className="w-4 h-4 animate-spin" />Analyzing & Saving...</>

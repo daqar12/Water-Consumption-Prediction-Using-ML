@@ -1,5 +1,5 @@
 "use client";
-import { Users, HeartHandshake, BrainCircuit, TriangleAlert } from "lucide-react";
+import { Users, HeartHandshake, BrainCircuit, TrendingUp, TrendingDown, Droplets, MapPin, Gauge } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import {
@@ -15,10 +15,26 @@ import { useEffect, useState } from "react";
 
 const FASTAPI_BASE = "http://127.0.0.1:8000";
 
+interface PredictionDetails {
+  id: number;
+  meter_number: string;
+  customer_name: string;
+  branch: string;
+  zone: string;
+  september_consumption: number;
+  october_consumption: number;
+  final_prediction: number;
+  status: string;
+  created_at: string;
+}
+
 export default function DashboardPage() {
   const [totalCustomers, setTotalCustomers] = useState<number | null>(null);
   const [totalUsers, setTotalUsers] = useState<number | null>(null);
-  const [predictionAccuracy, setPredictionAccuracy] = useState<string>("...");
+  const [highestPrediction, setHighestPrediction] = useState<number | null>(null);
+  const [highestPredictionDetails, setHighestPredictionDetails] = useState<PredictionDetails | null>(null);
+  const [lowestPrediction, setLowestPrediction] = useState<number | null>(null);
+  const [lowestPredictionDetails, setLowestPredictionDetails] = useState<PredictionDetails | null>(null);
   const [totalPredictions, setTotalPredictions] = useState<number | null>(null);
   const [customerOverview, setCustomerOverview] = useState<
     { name: string; total: number }[]
@@ -57,14 +73,28 @@ export default function DashboardPage() {
     fetch(`${FASTAPI_BASE}/reports/summary`)
       .then((res) => res.json())
       .then((data) => {
-        setPredictionAccuracy(data.model_accuracy);
         setTotalPredictions(data.predictions_made);
+        setHighestPrediction(data.highest_prediction ?? null);
+        setHighestPredictionDetails(data.highest_prediction_details ?? null);
+        setLowestPrediction(data.lowest_prediction ?? null);
+        setLowestPredictionDetails(data.lowest_prediction_details ?? null);
       })
       .catch(() => {
-        setPredictionAccuracy("74.3%");
         setTotalPredictions(0);
+        setHighestPrediction(null);
+        setHighestPredictionDetails(null);
+        setLowestPrediction(null);
+        setLowestPredictionDetails(null);
       });
   }, []);
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case "high": return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+      case "anomaly": return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+      default: return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -91,18 +121,18 @@ export default function DashboardPage() {
           trend={{ value: "1%", isPositive: true }}
         />
         <StatCard
-          title="Prediction Accuracy"
-          value={predictionAccuracy}
-          icon={<BrainCircuit className="w-6 h-6" />}
-          trend={{ value: "3.2%", isPositive: true }}
+          title="Highest Prediction"
+          value={highestPrediction !== null ? `${highestPrediction} m³` : "..."}
+          icon={<TrendingUp className="w-6 h-6" />}
         />
         <StatCard
-          title="Total Predictions"
-          value={totalPredictions === null ? "..." : totalPredictions.toLocaleString()}
-          icon={<TriangleAlert className="w-6 h-6" />}
-          trend={{ value: "8%", isPositive: true }}
+          title="Lowest Prediction"
+          value={lowestPrediction !== null ? `${lowestPrediction} m³` : "..."}
+          icon={<TrendingDown className="w-6 h-6" />}
         />
       </div>
+
+      
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">

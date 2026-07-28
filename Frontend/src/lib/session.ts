@@ -72,3 +72,15 @@ export const checkSessionExpired = () => {
   }
   return false;
 };
+
+/** Authorization headers for FastAPI (existing session_token). */
+export const authHeaders = (): Record<string, string> => {
+  const session = getSession();
+  if (!session?.token) return {};
+  return { Authorization: `Bearer ${session.token}` };
+};
+
+export const isAdminRole = (role?: string | null): boolean => {
+  const r = (role || "").trim().toLowerCase();
+  return r === "admin" || r === "administrator";
+};

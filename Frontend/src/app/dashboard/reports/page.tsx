@@ -8,6 +8,7 @@ import {
 import { Download, FileText, Filter, Droplets, TrendingUp, AlertTriangle, CheckCircle, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { authHeaders } from "@/lib/session";
 
 const FASTAPI_BASE = "http://127.0.0.1:8000";
 const COLORS = ["#0F766E", "#F59E0B", "#3B82F6", "#EC4899", "#8B5CF6", "#EC4899", "#10B981"];
@@ -89,7 +90,9 @@ export default function ReportsPage() {
             setExporting(format);
             setExportSuccess(null);
 
-            const res = await fetch(`${FASTAPI_BASE}/reports/export/${format}`);
+            const res = await fetch(`${FASTAPI_BASE}/reports/export/${format}`, {
+                headers: { ...authHeaders() },
+            });
             if (!res.ok) throw new Error(`Export failed (${res.status})`);
 
             const blob = await res.blob();
@@ -194,7 +197,7 @@ export default function ReportsPage() {
             {!loading && (
                 <>
                     {/* Stats Row */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                         {statsCards.map((stat, idx) => (
                             <Card key={idx}>
                                 <CardContent className="p-4 flex items-center gap-4">
@@ -208,7 +211,7 @@ export default function ReportsPage() {
                                 </CardContent>
                             </Card>
                         ))}
-                    </div>
+                    </div> */}
 
                     {/* Charts Row 1 */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

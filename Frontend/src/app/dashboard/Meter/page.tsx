@@ -13,6 +13,7 @@ import {
     Tooltip, ResponsiveContainer, AreaChart, Area,
     BarChart, Bar, PieChart, Pie, Cell, Legend
 } from "recharts";
+import { authHeaders, getSession, isAdminRole } from "@/lib/session";
 
 const FASTAPI_BASE = "http://127.0.0.1:8000";
 
@@ -33,6 +34,8 @@ interface MeterReading {
     reader: string;
     notes: string | null;
     created_at: string;
+    user_id?: number | null;
+    user_fullname?: string | null;
 }
 
 const statusConfig = {
@@ -48,14 +51,22 @@ export default function MeterReadingsPage() {
     const [searchTerm, setSearchTerm] = useState("");
     const [filterStatus, setFilterStatus] = useState<"all" | "normal" | "high" | "anomaly">("all");
     const [selectedRow, setSelectedRow] = useState<number | null>(null);
+    const [exporting, setExporting] = useState(false);
 
-    // Fetch all predictions from the FastAPI backend
+    const session = getSession();
+    const isAdmin = isAdminRole((session?.user as { role?: string } | undefined)?.role);
+
+    // Fetch predictions — backend enforces role visibility
     const fetchData = async () => {
         try {
             setLoading(true);
             setError(null);
-            // Fetch a large limit to gather all prediction records for the statistics and graphs
-            const res = await fetch(`${FASTAPI_BASE}/predictions?limit=1000&sort_order=desc`);
+            const res = await fetch(`${FASTAPI_BASE}/predictions?limit=10000&sort_order=desc`, {
+                headers: { ...authHeaders() },
+            });
+            if (res.status === 401) {
+                throw new Error("Session expired. Please log in again.");
+            }
             if (!res.ok) {
                 throw new Error("Failed to load meter predictions data");
             }
@@ -68,14 +79,36 @@ export default function MeterReadingsPage() {
         }
     };
 
+    const handleExportCsv = async () => {
+        try {
+            setExporting(true);
+            const res = await fetch(`${FASTAPI_BASE}/reports/export/csv`, {
+                headers: { ...authHeaders() },
+            });
+            if (!res.ok) throw new Error("Export failed");
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "prediction_history_report.csv";
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch {
+            setError("Failed to export CSV report.");
+        } finally {
+            setExporting(false);
+        }
+    };
+
     useEffect(() => {
         fetchData();
     }, []);
 
     // Filter logic
     const filtered = readings.filter((r) => {
+        const nameHaystack = `${r.customer_name} ${r.user_fullname || ""}`.toLowerCase();
         const matchSearch =
-            r.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            nameHaystack.includes(searchTerm.toLowerCase()) ||
             r.meter_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
             r.branch.toLowerCase().includes(searchTerm.toLowerCase()) ||
             r.zone.toLowerCase().includes(searchTerm.toLowerCase());
@@ -207,8 +240,8 @@ export default function MeterReadingsPage() {
                         <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
                         Refresh Data
                     </Button>
-                    <Button onClick={() => window.open(`${FASTAPI_BASE}/reports/export/csv`, "_blank")} className="gap-2 bg-primary text-white shadow-lg shadow-primary/20">
-                        <Download className="w-4 h-4" />
+                    <Button onClick={handleExportCsv} disabled={exporting} className="gap-2 bg-primary text-white shadow-lg shadow-primary/20">
+                        {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                         Export CSV
                     </Button>
                 </div>
@@ -461,7 +494,7 @@ export default function MeterReadingsPage() {
                         <table className="w-full text-sm text-left">
                             <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 border-b dark:border-slate-800">
                                 <tr>
-                                    {/* <th className="px-4 py-4">ID</th> */}
+                                    {isAdmin && <th className="px-4 py-4">Full Name</th>}
                                     <th className="px-4 py-4">Mtr No</th>
                                     <th className="px-4 py-4">Branch</th>
                                     <th className="px-4 py-4 ">Zone</th>
@@ -469,17 +502,14 @@ export default function MeterReadingsPage() {
                                     <th className="px-4 py-4 text-right">October (m³)</th>
                                     <th className="px-4 py-4 text-right">Predicted November (m³)</th>
                                     <th className="px-4 py-4 text-right">Final Prediction</th>
-                                    {/* <th className="px-4 py-4 text-center">Variance</th> */}
                                     <th className="px-4 py-4 text-center">Status</th>
-                                   
                                     <th className="px-4 py-4">Read Date</th>
-                                    {/* <th className="px-4 py-4">Reader</th> */}
                                 </tr>
                             </thead>
                             <tbody>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={13} className="px-6 py-10 text-center text-slate-400">
+                                        <td colSpan={isAdmin ? 10 : 9} className="px-6 py-10 text-center text-slate-400">
                                             <div className="flex items-center justify-center gap-2">
                                                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
                                                 Loading meter readings from database...
@@ -488,12 +518,12 @@ export default function MeterReadingsPage() {
                                     </tr>
                                 ) : filtered.length === 0 ? (
                                     <tr>
-                                        <td colSpan={13} className="px-6 py-10 text-center text-slate-400">
+                                        <td colSpan={isAdmin ? 10 : 9} className="px-6 py-10 text-center text-slate-400">
                                             No readings found. Use the ML Predictions tab to generate records.
                                         </td>
                                     </tr>
                                 ) : (
-                                    filtered.map((r, index) => {
+                                    filtered.map((r) => {
                                         const status = statusConfig[r.status] || { label: r.status, class: "bg-slate-100 text-slate-700", icon: null };
                                         const isSelected = selectedRow === r.id;
                                         return (
@@ -506,33 +536,18 @@ export default function MeterReadingsPage() {
                                                         : "hover:bg-slate-50/50 dark:hover:bg-slate-800/20"
                                                 }`}
                                             >
-                                            
-                                                {/* <td className="px-4 py-4 text-slate-400 text-xs">{index + 1}</td> */}
+                                                {isAdmin && (
+                                                    <td className="px-4 py-4 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                                                        {r.user_fullname || "—"}
+                                                    </td>
+                                                )}
                                                 <td className="px-4 py-4 font-small text-blue-600 dark:text-blue-400">{r.meter_number}</td>
                                                 <td className="px-4 py-4 font-medium text-slate-800 dark:text-slate-100">{r.branch}</td>
                                                 <td className="px-4 py-4 font-medium text-slate-800 dark:text-slate-100">{r.zone}</td>
-                                                {/* <td className="px-4 py-4">
-                                                    <div className="text-xs">
-                                                        <p className="font-medium text-slate-700 dark:text-slate-300">{r.branch}</p>
-                                                        <p className="text-slate-400">{r.zone}</p>
-                                                    </div>
-                                                </td> */}
                                                 <td className="px-4 py-4 text-right text-slate-700 dark:text-slate-200 font-mono text-xs font-semibold">{r.previous}</td>
                                                 <td className="px-4 py-4 text-right text-slate-700 dark:text-slate-200 font-mono text-xs font-semibold">{r.current}</td>
                                                 <td className="px-4 py-4 text-right font-bold text-teal-600">{r.ml_predicted.toFixed(2)}</td>
                                                 <td className="px-4 py-4 text-right font-semibold text-blue-500">{r.ml_predicted.toFixed(2)}</td>
-                                                {/* <td className="px-4 py-4 text-center">
-                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                                        r.variance === 0
-                                                            ? "text-slate-500"
-                                                            : r.variance > 0
-                                                                ? "text-amber-600 bg-amber-50 dark:bg-amber-900/20"
-                                                                : "text-blue-600 bg-blue-50 dark:bg-blue-900/20"
-                                                    }`}>
-                                                        {r.variance > 0 ? <TrendingUp className="w-3 h-3" /> : r.variance < 0 ? <TrendingDown className="w-3 h-3" /> : null}
-                                                        {r.variance > 0 ? `+${r.variance.toFixed(2)}` : r.variance === 0 ? "±0" : r.variance.toFixed(2)}
-                                                    </span>
-                                                </td> */}
                                                 <td className="px-4 py-4 text-center">
                                                     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${status.class}`}>
                                                         {status.icon}
@@ -540,7 +555,6 @@ export default function MeterReadingsPage() {
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-4 text-slate-500 text-xs whitespace-nowrap">{r.read_date}</td>
-                                                {/* <td className="px-4 py-4 text-slate-500 text-xs whitespace-nowrap">{r.reader}</td> */}
                                             </tr>
                                         );
                                     })

@@ -193,7 +193,16 @@ class PredictionHistory(Base):
         onupdate=datetime.datetime.utcnow
     )
 
+    # Staff/Admin user who created this prediction
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     customer = relationship("Customer", backref="predictions")
+    user = relationship("User", backref="predictions")
 
 
 
