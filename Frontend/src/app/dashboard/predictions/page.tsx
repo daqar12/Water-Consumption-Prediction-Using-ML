@@ -23,14 +23,15 @@ const branchList = [
     "Waaberi", "Xamar Jajab", "Xamar Wayne"
 ];
 
-const zoneList = [
-    "Beerta", "Buulo Weekiyo", "Buundada", "Galmudug",
-    "Gubta 1", "Gubta 2", "H.Wadaag 1", "H.Wadaag 2",
-    "Maajo", "Oodweyne", "Raadeel", "Seebiyaano",
-    "Tabeelaha", "Tareebiyaano", "Tareedisho",
-    "W.Nabada 1", "W.Nabada 2", "Wardheere",
-    "Warlalis", "Yaaqshiid", "Zope"
-];
+const branchZones: Record<string, string[]> = {
+    "Bakaaro": ["Yaaqshiid", "W.Nabada 2", "W.Nabada 1", "H.Wadaag 2", "H.Wadaag 1"],
+    "Dayniile": ["Gubta 1", "Gubta 2", "Raadeel", "Oodweyne", "Wardheere"],
+    "Garasbaaleey": ["Tabeelaha", "Tareedisho", "Galmudug", "Warlalis"],
+    "Hodan": ["Zope", "Seebiyaano"],
+    "Waaberi": ["Maajo", "Buulo Weekiyo", "Tareebiyaano"],
+    "Xamar Jajab": ["Buundada"],
+    "Xamar Wayne": ["Beerta"]
+};
 
 const modelDisplayNames: Record<string, string> = {
     linear_regression: "Linear Regression",
@@ -518,14 +519,14 @@ export default function MLPredictionsPage() {
                         {/* Branch */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Branch</label>
-                            <Select label="Select Branch" options={branchList} value={branch} onChange={(v) => { setBranch(v); setErrors((p) => ({ ...p, branch: "" })); }} />
+                            <Select label="Select Branch" options={branchList} value={branch} onChange={(v) => { setBranch(v); setZone(""); setErrors((p) => ({ ...p, branch: "", zone: "" })); }} />
                             {errors.branch && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.branch}</p>}
                         </div>
 
                         {/* Zone */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Zone</label>
-                            <Select label="Select Zone" options={zoneList} value={zone} onChange={(v) => { setZone(v); setErrors((p) => ({ ...p, zone: "" })); }} />
+                            <Select label="Select Zone" options={branch ? (branchZones[branch] || []) : []} value={zone} onChange={(v) => { setZone(v); setErrors((p) => ({ ...p, zone: "" })); }} />
                             {errors.zone && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.zone}</p>}
                         </div>
 
