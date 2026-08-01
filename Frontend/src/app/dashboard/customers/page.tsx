@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Search, Plus, ExternalLink, Upload, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { API_URL } from "@/lib/config";
 
 interface Customer {
   id: number;
@@ -43,7 +44,7 @@ export default function CustomersPage() {
     setLoading(true);
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/customers?page=${page}&limit=${limit}`
+        `${API_URL}/customers?page=${page}&limit=${limit}`
       );
       if (!response.ok) throw new Error("Failed to fetch customers");
       const result: PaginatedResponse = await response.json();
@@ -92,7 +93,7 @@ export default function CustomersPage() {
                 formData.append("file", file);
                 try {
                   setUploading(true);
-                  const response = await fetch("http://127.0.0.1:8000/customers/upload", {
+                  const response = await fetch(`${API_URL}/customers/upload`, {
                     method: "POST",
                     body: formData,
                   });

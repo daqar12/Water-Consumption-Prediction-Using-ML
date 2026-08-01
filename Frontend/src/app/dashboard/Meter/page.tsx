@@ -14,8 +14,10 @@ import {
     BarChart, Bar, PieChart, Pie, Cell, Legend
 } from "recharts";
 import { authHeaders, getSession, isAdminRole } from "@/lib/session";
+import { API_URL } from "@/lib/config";
+import { ClientOnly } from "@/components/ClientOnly";
 
-const FASTAPI_BASE = "http://127.0.0.1:8000";
+const FASTAPI_BASE = API_URL;
 
 interface MeterReading {
     id: number;
@@ -284,6 +286,15 @@ export default function MeterReadingsPage() {
             </div>
 
             {/* Charts Grid */}
+            <ClientOnly
+                fallback={
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {Array.from({ length: 6 }).map((_, i) => (
+                            <div key={i} className="h-[280px] rounded-2xl bg-slate-100 dark:bg-slate-800/60 animate-pulse" />
+                        ))}
+                    </div>
+                }
+            >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
                 {/* 1. Prediction Trend (Line Chart) */}
@@ -456,6 +467,7 @@ export default function MeterReadingsPage() {
                 </Card>
 
             </div>
+            </ClientOnly>
 
             {/* Table */}
             <Card>

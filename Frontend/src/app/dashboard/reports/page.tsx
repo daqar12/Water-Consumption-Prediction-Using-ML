@@ -9,8 +9,10 @@ import { Download, FileText, Filter, Droplets, TrendingUp, AlertTriangle, CheckC
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { authHeaders } from "@/lib/session";
+import { API_URL } from "@/lib/config";
+import { ClientOnly } from "@/components/ClientOnly";
 
-const FASTAPI_BASE = "http://127.0.0.1:8000";
+const FASTAPI_BASE = API_URL;
 const COLORS = ["#0F766E", "#F59E0B", "#3B82F6", "#EC4899", "#8B5CF6", "#EC4899", "#10B981"];
 
 interface SummaryStats {
@@ -214,6 +216,14 @@ export default function ReportsPage() {
                     </div> */}
 
                     {/* Charts Row 1 */}
+                    <ClientOnly
+                        fallback={
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="lg:col-span-2 h-[320px] rounded-2xl bg-slate-100 dark:bg-slate-800/60 animate-pulse" />
+                                <div className="h-[320px] rounded-2xl bg-slate-100 dark:bg-slate-800/60 animate-pulse" />
+                            </div>
+                        }
+                    >
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Prediction vs Actual */}
                         <Card className="lg:col-span-2">
@@ -336,6 +346,7 @@ export default function ReportsPage() {
                             </CardContent>
                         </Card> */}
                     </div>
+                    </ClientOnly>
                 </>
             )}
         </div>

@@ -1,4 +1,5 @@
 import API from "./api";
+import { API_URL } from "@/lib/config";
 
 export interface PredictionPayload {
   September: number;
@@ -72,6 +73,6 @@ export const predictionService = {
 
   // Export URLs helper
   getExportUrl: (format: "pdf" | "excel" | "csv") => {
-    return `http://127.0.0.1:8000/reports/export/${format}`;
+    return `${API_URL}/reports/export/${format}`;
   }
 };

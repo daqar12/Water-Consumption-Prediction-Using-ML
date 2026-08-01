@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Search, Plus, Mail, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { API_URL } from "@/lib/config";
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = API_URL;
 
 interface User {
   id: number;

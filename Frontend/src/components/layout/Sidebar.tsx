@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearSession, getSession } from "@/lib/session";
+import { API_URL } from "@/lib/config";
 
 const menuItems = [
   { name: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
@@ -48,7 +49,7 @@ export function Sidebar() {
 
   const handleLogout = async () => {
     if (session?.token) {
-      await fetch("http://127.0.0.1:8000/logout", {
+      await fetch(`${API_URL}/logout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: session.token }),

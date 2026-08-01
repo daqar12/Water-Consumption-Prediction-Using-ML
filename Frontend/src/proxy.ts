@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export function middleware(request: NextRequest) {
+/**
+ * Next.js 16+ network boundary (replaces deprecated middleware.ts).
+ * Protects /dashboard routes when no session cookie is present.
+ */
+export function proxy(request: NextRequest) {
   const token = request.cookies.get("session_token")?.value;
 
-  // If there is no token and the user is trying to access any dashboard path, redirect to login
   if (!token && request.nextUrl.pathname.startsWith("/dashboard")) {
     return NextResponse.redirect(new URL("/", request.url));
   }
@@ -12,7 +15,6 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// Only match /dashboard and any nested subpaths under /dashboard
 export const config = {
   matcher: ["/dashboard/:path*"],
 };

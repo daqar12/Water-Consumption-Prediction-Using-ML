@@ -1,39 +1,45 @@
 import sys
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# Add the Backend directory to the path so it can import modules correctly
+# Ensure Backend imports resolve when run as a script
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from config import (
+    ADMIN_EMAIL,
+    ADMIN_FULLNAME,
+    ADMIN_PASSWORD,
+    ADMIN_PHONE,
+    ADMIN_USERNAME,
+)
 from database import SessionLocal, engine, Base
 from models import User
 from passwordhelper import hash_password
 
+
 def seed_admin():
-    # Ensure tables exist
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        raise RuntimeError(
+            "ADMIN_EMAIL and ADMIN_PASSWORD must be set in the project root .env "
+            "before running seed_admin.py"
+        )
+
     Base.metadata.create_all(bind=engine)
-    
+
     db = SessionLocal()
     try:
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-        
-        existing_admin = db.query(User).filter(User.email == admin_email).first()
-        
+        existing_admin = db.query(User).filter(User.email == ADMIN_EMAIL).first()
+
         if existing_admin:
             print("Admin user already exists.")
             return
 
-        # Using hash_password from passwordhelper.py
-        hashed_pw = hash_password(admin_password)
-        
+        hashed_pw = hash_password(ADMIN_PASSWORD)
+
         new_admin = User(
-            username="admin",
-            fullname="Administrator",
-            email=admin_email,
-            phone="1234567890",
+            username=ADMIN_USERNAME or "admin",
+            fullname=ADMIN_FULLNAME or "Administrator",
+            email=ADMIN_EMAIL,
+            phone=ADMIN_PHONE or None,
             password=hashed_pw,
             role="admin"
         )
@@ -41,12 +47,13 @@ def seed_admin():
         db.commit()
         db.refresh(new_admin)
         print("Admin user created successfully!")
-        print(f"Email: {admin_email}")
-        print(f"Password: {admin_password}")
+        print(f"Email: {ADMIN_EMAIL}")
+        print("Password: (from ADMIN_PASSWORD env — not printed)")
     except Exception as e:
         print(f"Error seeding admin: {e}")
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     seed_admin()

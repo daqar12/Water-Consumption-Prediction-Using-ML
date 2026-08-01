@@ -1,3 +1,5 @@
+import { SESSION_MAX_AGE_SECONDS, SESSION_MINUTES } from "@/lib/config";
+
 const SESSION_KEY = "session_token";
 const USER_KEY    = "user";
 const EXPIRES_KEY = "session_expires_at";
@@ -8,12 +10,10 @@ export const saveSession = (token: string, user: object) => {
       sessionStorage.setItem(SESSION_KEY, token);
       sessionStorage.setItem(USER_KEY, JSON.stringify(user || {}));
       
-      // 45 minutes session duration
-      const expiresAt = Date.now() + 45 * 60 * 1000;
+      const expiresAt = Date.now() + SESSION_MINUTES * 60 * 1000;
       sessionStorage.setItem(EXPIRES_KEY, expiresAt.toString());
       
-      // Cookie set to 45 minutes (2700 seconds)
-      document.cookie = `${SESSION_KEY}=${token}; path=/; max-age=2700; SameSite=Lax`;
+      document.cookie = `${SESSION_KEY}=${token}; path=/; max-age=${SESSION_MAX_AGE_SECONDS}; SameSite=Lax`;
     } else {
       clearSession();
     }

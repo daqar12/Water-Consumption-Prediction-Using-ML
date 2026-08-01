@@ -1,8 +1,9 @@
 import axios from "axios";
 import { getSession } from "@/lib/session";
+import { API_URL } from "@/lib/config";
 
 const API = axios.create({
-  baseURL: "http://127.0.0.1:8000",
+  baseURL: API_URL,
   headers: {
     "Content-Type": "application/json",
   },

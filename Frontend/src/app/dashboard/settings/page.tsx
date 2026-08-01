@@ -142,7 +142,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   sessionTimeout: 45,
   jwtExpiration: 24,
   failedLoginLimit: 5,
-  apiKey: "adt_live_9f83ea82bc194aef81b3c8a9e0f",
+  apiKey: "",
 
   dbStatus: "connected",
   lastBackup: "2026-07-28 02:00:00",

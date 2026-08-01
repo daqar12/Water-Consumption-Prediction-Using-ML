@@ -14,9 +14,11 @@ import {
     LineChart, Line, Area, AreaChart
 } from "recharts";
 import { authHeaders } from "@/lib/session";
+import { API_URL } from "@/lib/config";
+import { ClientOnly } from "@/components/ClientOnly";
 
 // ── API endpoint — FastAPI backend (runs ML + auto-saves to PostgreSQL) ──
-const FASTAPI_BASE = "http://127.0.0.1:8000";
+const FASTAPI_BASE = API_URL;
 
 const branchList = [
     "Bakaaro", "Dayniile", "Garasbaaleey", "Hodan",
@@ -667,6 +669,14 @@ export default function MLPredictionsPage() {
                                 </div>
 
                                 {/* Charts */}
+                                <ClientOnly
+                                    fallback={
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                            <div className="h-[200px] rounded-3xl bg-slate-100 dark:bg-slate-800/60 animate-pulse" />
+                                            <div className="h-[200px] rounded-3xl bg-slate-100 dark:bg-slate-800/60 animate-pulse" />
+                                        </div>
+                                    }
+                                >
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                                     {/* Trend chart from real DB data */}
                                     <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl p-5">
@@ -718,6 +728,7 @@ export default function MLPredictionsPage() {
                                         </div>
                                     </div>
                                 </div>
+                                </ClientOnly>
 
                                 {/* All model predictions table (final_model excluded) */}
                                 <div className="rounded-3xl border border-slate-200/80 dark:border-slate-700/80 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl p-5">

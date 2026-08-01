@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Bell, Moon, Sun, ChevronDown, Settings, LogOut, UserCircle } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { getSession, clearSession, checkSessionExpired } from "@/lib/session";
+import { API_URL } from "@/lib/config";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -23,7 +24,7 @@ export function Navbar() {
     };
 
     checkExpiry();
-    const interval = setInterval(checkExpiry, 5000);
+    const interval = setInterval(checkExpiry, 30000);
     return () => clearInterval(interval);
   }, [router]);
 
@@ -38,7 +39,7 @@ export function Navbar() {
   const handleLogout = async () => {
     const session = getSession();
     if (session?.token) {
-      await fetch("http://127.0.0.1:8000/logout", {
+      await fetch(`${API_URL}/logout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: session.token }),

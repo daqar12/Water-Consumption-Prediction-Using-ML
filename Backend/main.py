@@ -17,6 +17,12 @@ import random
 from datetime import datetime
 from fastapi.responses import Response, StreamingResponse
 
+from config import (
+    CORS_ORIGINS,
+    ML_PREDICT_ALL_PATH,
+    ML_REQUEST_TIMEOUT,
+    ML_SERVICE_URL,
+)
 from database import (
     engine,
     Base,
@@ -60,9 +66,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
 
-    allow_origins=[
-        "http://localhost:3000"
-    ],
+    allow_origins=CORS_ORIGINS,
 
     allow_credentials=True,
 
@@ -428,13 +432,14 @@ async def generate_prediction(
     }
     
     try:
+        ml_url = f"{ML_SERVICE_URL.rstrip('/')}{ML_PREDICT_ALL_PATH}"
         req = urllib.request.Request(
-            "http://127.0.0.1:4050/predict-all",
+            ml_url,
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=ML_REQUEST_TIMEOUT) as response:
             ml_response = json.loads(response.read().decode("utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ML server error: {e}")

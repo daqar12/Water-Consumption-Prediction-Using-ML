@@ -2,9 +2,17 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import joblib
 import json
+import sys
 from pathlib import Path
 
 from utils import prepare_features_from_row
+
+# Allow importing Backend/config.py when running this Flask app
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from config import FLASK_DEBUG, FLASK_HOST, FLASK_PORT  # noqa: E402
 
 server = Flask(__name__)
 CORS(server)
@@ -167,7 +175,7 @@ def predict_all():
 # =====================================================
 if __name__ == "__main__":
     server.run(
-        host="0.0.0.0",
-        port=4050,
-        debug=False
+        host=FLASK_HOST,
+        port=FLASK_PORT,
+        debug=FLASK_DEBUG
     )
