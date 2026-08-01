@@ -24,14 +24,19 @@ node_modules/
 out/
 build/
 dist/
-# Env files (keep examples trackable)
+# Env files (secrets + local examples — do not commit)
 .env
+.env.*
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
-!.env.example
 .env.example
+Frontend/.env
+Frontend/.env.local
+Frontend/.env.example
+Backend/.env
+Backend/.env.example
 
 npm-debug.log*
 yarn-debug.log*
