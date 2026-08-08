@@ -63,12 +63,24 @@ class Customer(Base):
         index=True
     )
 
+    customer_code = Column(
+        String(20),
+        unique=True,
+        nullable=False,
+        index=True
+    )
+
+    record_source = Column(
+        String(20),
+        nullable=False,
+        default="manual",
+        index=True
+    )
+
     Customer_Name = Column(
         String(150),
         nullable=False
     )
-
-  
 
     Branch = Column(
         String(100)
@@ -79,16 +91,86 @@ class Customer(Base):
     )
 
     september = Column(
-        Integer
+        Float
     )
 
     october = Column(
-        Integer
+        Float
     )
 
     november = Column(
-        Integer
+        Float,
+        nullable=True
     )
+
+
+# System Activity Logs
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    action = Column(
+        String(50),
+        nullable=False,
+        index=True
+    )
+
+    entity_type = Column(
+        String(50),
+        nullable=True
+    )
+
+    entity_id = Column(
+        String(50),
+        nullable=True
+    )
+
+    entity_code = Column(
+        String(50),
+        nullable=True,
+        index=True
+    )
+
+    description = Column(
+        String(500),
+        nullable=True
+    )
+
+    old_data = Column(
+        String(1000),
+        nullable=True
+    )
+
+    new_data = Column(
+        String(1000),
+        nullable=True
+    )
+
+    ip_address = Column(
+        String(50),
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.datetime.utcnow,
+        index=True
+    )
+
+    user = relationship("User", backref="activity_logs")
+
 
 
 # make prdictions history table

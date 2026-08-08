@@ -5,6 +5,7 @@ import { Search, Plus, Mail, X, Loader2, CheckCircle2, AlertCircle } from "lucid
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { API_URL } from "@/lib/config";
+import { authHeaders } from "@/lib/session";
 
 const API_BASE = API_URL;
 
@@ -127,9 +128,11 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch(`${API_BASE}/users`);
+      const response = await fetch(`${API_BASE}/users`, {
+        headers: { ...authHeaders() }
+      });
       const data = await response.json();
-      setUsers(data);
+      setUsers(Array.isArray(data) ? data : []);
     } catch {
       console.log("Error fetching users");
     } finally {
@@ -151,6 +154,7 @@ export default function UsersPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...authHeaders()
         },
         body: JSON.stringify(formData),
       });
@@ -226,7 +230,7 @@ export default function UsersPage() {
     try {
       const response = await fetch(`${API_BASE}/users/${editingUser.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(payload),
       });
 

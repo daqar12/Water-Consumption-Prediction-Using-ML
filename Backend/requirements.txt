@@ -17,3 +17,5 @@ seaborn
 scikit-learn
 joblib
 xgboost
+reportlab
+openpyxl

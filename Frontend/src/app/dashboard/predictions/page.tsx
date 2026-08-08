@@ -162,6 +162,22 @@ function Select({ label, options, value, onChange }: {
 
 // ══════════════════════════════════════════════════════════
 export default function MLPredictionsPage() {
+    // Customer search & pre-selection state
+    const [customerCode, setCustomerCode] = useState("");
+    const [loadedCustomer, setLoadedCustomer] = useState<{
+        id: number;
+        customer_code: string;
+        Customer_Name: string;
+        Branch: string;
+        Zone: string;
+        september: number;
+        october: number;
+        november: number | null;
+        record_source: string;
+    } | null>(null);
+    const [customerLoading, setCustomerLoading] = useState(false);
+    const [customerSearchError, setCustomerSearchError] = useState("");
+
     // Form state — matches backend required fields
     const [september, setSeptember] = useState("");
     const [october, setOctober] = useState("");
@@ -199,6 +215,65 @@ export default function MLPredictionsPage() {
     };
 
     useEffect(() => { fetchHistory(); }, []);
+
+    // Load customer from URL query parameter e.g. /dashboard/predictions?customer=CUS-00001
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const codeParam = params.get("customer");
+            if (codeParam) {
+                setCustomerCode(codeParam);
+                loadCustomerByCode(codeParam);
+            }
+        }
+    }, []);
+
+    const loadCustomerByCode = async (codeToSearch: string) => {
+        const code = codeToSearch.trim();
+        if (!code) return;
+        setCustomerLoading(true);
+        setCustomerSearchError("");
+        setApiError("");
+
+        try {
+            const res = await fetch(`${FASTAPI_BASE}/customers/by-code/${encodeURIComponent(code)}`, {
+                headers: { ...authHeaders() },
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                setCustomerSearchError(data.detail || "Customer not found");
+                setLoadedCustomer(null);
+                return;
+            }
+
+            setLoadedCustomer(data);
+            setSeptember(data.september !== null ? data.september.toString() : "");
+            setOctober(data.october !== null ? data.october.toString() : "");
+            setBranch(data.Branch || "");
+            setZone(data.Zone || "");
+
+            if (data.record_source === "imported") {
+                setApiError("Prediction is only available for newly added customers (Imported Dataset rows represent reference data).");
+            } else if (data.november !== null && data.november !== undefined) {
+                setApiError(`November consumption has already been predicted for ${data.customer_code} (${data.november} m³) and is permanently locked.`);
+            }
+        } catch (err) {
+            setCustomerSearchError("Failed to fetch customer details.");
+        } finally {
+            setCustomerLoading(false);
+        }
+    };
+
+    const clearLoadedCustomer = () => {
+        setLoadedCustomer(null);
+        setCustomerCode("");
+        setSeptember("");
+        setOctober("");
+        setBranch("");
+        setZone("");
+        setApiError("");
+        setCustomerSearchError("");
+    };
 
     // Close export dropdown on outside click
     useEffect(() => {
@@ -249,7 +324,6 @@ export default function MLPredictionsPage() {
     const validateConsumptionField = (value: string, fieldName: string): string => {
         if (!value || value.trim() === "") return `Enter a valid ${fieldName} value.`;
 
-        // Reject non-numeric patterns
         if (/[^0-9.]/.test(value)) return `${fieldName} must be a numeric value.`;
         if ((value.match(/\./g) || []).length > 1) return `${fieldName} has an invalid format.`;
 
@@ -258,7 +332,6 @@ export default function MLPredictionsPage() {
         if (num < MIN_CONSUMPTION) return "Water consumption must be at least 0.5 m\u00b3.";
         if (num > MAX_CONSUMPTION) return `${fieldName} must be between ${MIN_CONSUMPTION} and ${MAX_CONSUMPTION.toLocaleString()} m\u00b3.`;
 
-        // Max 2 decimal places
         const parts = value.split(".");
         if (parts.length === 2 && parts[1].length > 2) return `${fieldName} allows a maximum of 2 decimal places.`;
 
@@ -277,20 +350,21 @@ export default function MLPredictionsPage() {
         return Object.keys(e).length === 0;
     };
 
-    // Check if form is complete and valid (for button disable)
     const isFormValid = (() => {
         if (!september || !october || !branch || !zone) return false;
         if (validateConsumptionField(september, "September")) return false;
         if (validateConsumptionField(october, "October")) return false;
+        if (loadedCustomer) {
+            if (loadedCustomer.record_source === "imported") return false;
+            if (loadedCustomer.november !== null && loadedCustomer.november !== undefined) return false;
+        }
         return true;
     })();
 
-    // Block invalid characters on number inputs
     const blockInvalidKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (["e", "E", "+", "-", " "].includes(e.key)) e.preventDefault();
     };
 
-    // Sanitize pasted content
     const handlePaste = (
         e: React.ClipboardEvent<HTMLInputElement>,
         setter: (v: string) => void,
@@ -299,7 +373,6 @@ export default function MLPredictionsPage() {
     ) => {
         e.preventDefault();
         const text = e.clipboardData.getData("text").trim();
-        // Only allow digits and single dot
         if (/^\d*\.?\d*$/.test(text)) {
             setter(text);
             setErrors((p) => ({ ...p, [field]: validateConsumptionField(text, fieldName) }));
@@ -316,6 +389,7 @@ export default function MLPredictionsPage() {
         setResult(null);
 
         const payload = {
+            customer_code: loadedCustomer ? loadedCustomer.customer_code : (customerCode.trim() || undefined),
             September: parseFloat(september),
             October: parseFloat(october),
             Branch: branch,
@@ -324,7 +398,6 @@ export default function MLPredictionsPage() {
         };
 
         try {
-            // POST /predictions — FastAPI runs the ML model AND saves to PostgreSQL automatically
             const res = await fetch(`${FASTAPI_BASE}/predictions`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -339,7 +412,6 @@ export default function MLPredictionsPage() {
                 return;
             }
 
-            // Reconstruct allPredictions from the backend response for model comparison charts
             const allPredictions: Record<string, number> = {
                 linear_regression: data.linear_regression_prediction,
                 decision_tree: data.decision_tree_prediction,
@@ -358,7 +430,10 @@ export default function MLPredictionsPage() {
                 allPredictions,
             });
 
-            // Refresh the prediction history table from the database
+            if (loadedCustomer) {
+                setLoadedCustomer((prev) => prev ? { ...prev, november: data.final_prediction } : null);
+            }
+
             await fetchHistory();
 
         } catch (err: unknown) {
@@ -468,6 +543,51 @@ export default function MLPredictionsPage() {
                             </div>
                         </div>
 
+                        {/* Customer Search & Pre-fill */}
+                        <div className="space-y-1.5 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700">
+                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide flex items-center justify-between">
+                                <span>Load Customer by Code</span>
+                                {loadedCustomer && (
+                                    <button onClick={clearLoadedCustomer} className="text-[11px] text-primary hover:underline flex items-center gap-1">
+                                        <X className="w-3 h-3" /> Clear Customer
+                                    </button>
+                                )}
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={customerCode}
+                                    onChange={(e) => setCustomerCode(e.target.value)}
+                                    placeholder="Enter Customer Code (e.g. CUS-00001)"
+                                    className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => loadCustomerByCode(customerCode)}
+                                    disabled={customerLoading || !customerCode.trim()}
+                                    className="px-3 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors flex items-center gap-1 shrink-0"
+                                >
+                                    {customerLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Load Customer"}
+                                </button>
+                            </div>
+                            {customerSearchError && (
+                                <p className="text-xs text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" />{customerSearchError}</p>
+                            )}
+
+                            {loadedCustomer && (
+                                <div className="mt-2 p-2.5 rounded-xl bg-primary/5 border border-primary/20 text-xs space-y-1">
+                                    <div className="flex justify-between items-center font-bold text-slate-800 dark:text-slate-100">
+                                        <span className="font-mono text-primary">{loadedCustomer.customer_code}</span>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${loadedCustomer.record_source === 'imported' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>
+                                            {loadedCustomer.record_source === 'imported' ? 'Imported Dataset' : 'New Entry'}
+                                        </span>
+                                    </div>
+                                    <p className="text-slate-600 dark:text-slate-300 font-medium">{loadedCustomer.Customer_Name}</p>
+                                    <p className="text-slate-400 text-[11px]">{loadedCustomer.Branch} • {loadedCustomer.Zone}</p>
+                                </div>
+                            )}
+                        </div>
+
                         {/* September Consumption */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
@@ -479,6 +599,7 @@ export default function MLPredictionsPage() {
                                 min="0.5"
                                 max="100000"
                                 step="0.01"
+                                disabled={!!loadedCustomer}
                                 onKeyDown={blockInvalidKeys}
                                 onPaste={(e) => handlePaste(e, setSeptember, "september", "September")}
                                 onChange={(e) => {
@@ -488,7 +609,7 @@ export default function MLPredictionsPage() {
                                     setErrors((p) => ({ ...p, september: err }));
                                 }}
                                 placeholder="e.g. 15"
-                                className={`w-full px-4 py-3 rounded-2xl border ${errors.september ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all`}
+                                className={`w-full px-4 py-3 rounded-2xl border ${errors.september ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed`}
                             />
                             {errors.september && <p className="text-xs text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" />{errors.september}</p>}
                         </div>
@@ -504,6 +625,7 @@ export default function MLPredictionsPage() {
                                 min="0.5"
                                 max="100000"
                                 step="0.01"
+                                disabled={!!loadedCustomer}
                                 onKeyDown={blockInvalidKeys}
                                 onPaste={(e) => handlePaste(e, setOctober, "october", "October")}
                                 onChange={(e) => {
@@ -513,7 +635,7 @@ export default function MLPredictionsPage() {
                                     setErrors((p) => ({ ...p, october: err }));
                                 }}
                                 placeholder="e.g. 12"
-                                className={`w-full px-4 py-3 rounded-2xl border ${errors.october ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all`}
+                                className={`w-full px-4 py-3 rounded-2xl border ${errors.october ? "border-red-400 ring-2 ring-red-200 dark:ring-red-900/40" : "border-slate-200 dark:border-slate-700"} bg-white/60 dark:bg-slate-800/60 backdrop-blur text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed`}
                             />
                             {errors.october && <p className="text-xs text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" />{errors.october}</p>}
                         </div>
@@ -521,14 +643,32 @@ export default function MLPredictionsPage() {
                         {/* Branch */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Branch</label>
-                            <Select label="Select Branch" options={branchList} value={branch} onChange={(v) => { setBranch(v); setZone(""); setErrors((p) => ({ ...p, branch: "", zone: "" })); }} />
+                            {loadedCustomer ? (
+                                <input
+                                    type="text"
+                                    value={branch}
+                                    disabled
+                                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                                />
+                            ) : (
+                                <Select label="Select Branch" options={branchList} value={branch} onChange={(v) => { setBranch(v); setZone(""); setErrors((p) => ({ ...p, branch: "", zone: "" })); }} />
+                            )}
                             {errors.branch && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.branch}</p>}
                         </div>
 
                         {/* Zone */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Zone</label>
-                            <Select label="Select Zone" options={branch ? (branchZones[branch] || []) : []} value={zone} onChange={(v) => { setZone(v); setErrors((p) => ({ ...p, zone: "" })); }} />
+                            {loadedCustomer ? (
+                                <input
+                                    type="text"
+                                    value={zone}
+                                    disabled
+                                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                                />
+                            ) : (
+                                <Select label="Select Zone" options={branch ? (branchZones[branch] || []) : []} value={zone} onChange={(v) => { setZone(v); setErrors((p) => ({ ...p, zone: "" })); }} />
+                            )}
                             {errors.zone && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.zone}</p>}
                         </div>
 

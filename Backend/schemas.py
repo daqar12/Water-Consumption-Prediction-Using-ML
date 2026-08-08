@@ -85,9 +85,70 @@ class CustomerCreate(BaseModel):
     Customer_Name: str
     Branch: str
     Zone: str
-    september: int
-    october: int
-    november: int
+    september: float
+    october: float
+    november: Optional[float] = None
+
+    @field_validator("Customer_Name", "Branch", "Zone")
+    @classmethod
+    def validate_non_empty(cls, v: str, info) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError(f"{info.field_name.replace('_', ' ')} is required.")
+        return s
+
+    @field_validator("september", "october")
+    @classmethod
+    def validate_monthly_consumption(cls, v: float, info) -> float:
+        field_name = info.field_name.capitalize()
+        MIN_CONSUMPTION = 0.5
+        MAX_CONSUMPTION = 100000
+
+        if not math.isfinite(v):
+            raise ValueError(f"{field_name} consumption must be a finite number.")
+
+        if v < MIN_CONSUMPTION:
+            raise ValueError("Water consumption must be at least 0.5 m\u00b3.")
+
+        if v > MAX_CONSUMPTION:
+            raise ValueError(
+                f"{field_name} consumption must be between {MIN_CONSUMPTION} and 100,000 m\u00b3."
+            )
+
+        if round(v, 2) != v:
+            raise ValueError(f"{field_name} consumption allows a maximum of 2 decimal places.")
+
+        return round(v, 2)
+
+
+class CustomerResponse(BaseModel):
+    id: int
+    customer_code: str
+    record_source: str
+    Customer_Name: str
+    Branch: Optional[str] = None
+    Zone: Optional[str] = None
+    september: Optional[float] = None
+    october: Optional[float] = None
+    november: Optional[float] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ActivityLogResponse(BaseModel):
+    id: int
+    user_id: Optional[int] = None
+    user_fullname: Optional[str] = None
+    user_role: Optional[str] = None
+    action: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[str] = None
+    entity_code: Optional[str] = None
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 #prediction_history
 class PredictionHistoryCreate(BaseModel):
@@ -97,6 +158,7 @@ class PredictionHistoryCreate(BaseModel):
     Zone: str
     notes: Optional[str] = None
     customer_id: Optional[int] = None
+    customer_code: Optional[str] = None
     meter_number: Optional[str] = None
 
     @field_validator("September", "October")

@@ -12,6 +12,7 @@ import {
   UsersRound,
   Gauge,
   BrainCircuit,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearSession, getSession } from "@/lib/session";
@@ -29,12 +30,13 @@ const menuItems = [
   // { name: "Payments", icon: CreditCard, href: "/dashboard/Payments" },
   // { name: "Billing", icon: Receipt, href: "/dashboard/billing" },
   { name: "Users", icon: Users, href: "/dashboard/users" },
+  { name: "Activity Logs", icon: ScrollText, href: "/dashboard/activity-logs" },
   { name: "Reports", icon: FileText, href: "/dashboard/reports" },
   { name: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
 // Pages hidden from staff
-const STAFF_HIDDEN = ["/dashboard/users", "/dashboard/settings", "/dashboard/reports"];
+const STAFF_HIDDEN = ["/dashboard/users", "/dashboard/settings", "/dashboard/activity-logs"];
 
 export function Sidebar() {
   const pathname = usePathname();

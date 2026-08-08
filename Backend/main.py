@@ -38,28 +38,62 @@ Base.metadata.create_all(
     bind=engine
 )
 
-# Ensure prediction_history.user_id exists (additive migration; no redesign)
-def _ensure_prediction_user_id_column():
+# Ensure prediction_history.user_id, customers.customer_code, customers.record_source, and activity_logs exist (additive migration)
+def _ensure_enhanced_schema_and_backfill():
     from sqlalchemy import inspect, text
     try:
         inspector = inspect(engine)
-        if "prediction_history" not in inspector.get_table_names():
-            return
-        cols = {c["name"] for c in inspector.get_columns("prediction_history")}
-        if "user_id" not in cols:
+
+        # Create any missing tables (e.g. activity_logs)
+        Base.metadata.create_all(bind=engine)
+
+        if "prediction_history" in inspector.get_table_names():
+            cols = {c["name"] for c in inspector.get_columns("prediction_history")}
+            if "user_id" not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE prediction_history "
+                        "ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+                    ))
+                    conn.execute(text(
+                        "CREATE INDEX IF NOT EXISTS ix_prediction_history_user_id "
+                        "ON prediction_history (user_id)"
+                    ))
+
+        if "customers" in inspector.get_table_names():
+            cols = {c["name"] for c in inspector.get_columns("customers")}
             with engine.begin() as conn:
+                if "customer_code" not in cols:
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN customer_code VARCHAR(20)"))
+                if "record_source" not in cols:
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN record_source VARCHAR(20) DEFAULT 'imported'"))
+
+                # Backfill missing customer codes with CUS-00001, CUS-00002... format
                 conn.execute(text(
-                    "ALTER TABLE prediction_history "
-                    "ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+                    "UPDATE customers SET customer_code = 'CUS-' || LPAD(id::text, 5, '0') "
+                    "WHERE customer_code IS NULL OR customer_code = '' OR customer_code = 'TEMP'"
                 ))
                 conn.execute(text(
-                    "CREATE INDEX IF NOT EXISTS ix_prediction_history_user_id "
-                    "ON prediction_history (user_id)"
+                    "UPDATE customers SET record_source = 'imported' "
+                    "WHERE record_source IS NULL OR record_source = ''"
+                ))
+
+                # Make november nullable if it was NOT NULL
+                try:
+                    conn.execute(text("ALTER TABLE customers ALTER COLUMN november DROP NOT NULL"))
+                except Exception:
+                    pass
+
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_customers_customer_code ON customers (customer_code)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_customers_record_source ON customers (record_source)"
                 ))
     except Exception as e:
-        print(f"[startup] user_id column check skipped: {e}")
+        print(f"[startup] schema update / backfill warning: {e}")
 
-_ensure_prediction_user_id_column()
+_ensure_enhanced_schema_and_backfill()
 
 app = FastAPI()
 
@@ -139,6 +173,12 @@ def _is_admin(user: User) -> bool:
     return (user.role or "").strip().lower() in ("admin", "administrator")
 
 
+def require_admin(current_user: User = Depends(get_current_user)):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
 @app.post("/login")
 def login(data: dict, db: Session = Depends(get_db)):
     from passwordhelper import verify_password
@@ -162,6 +202,15 @@ def login(data: dict, db: Session = Depends(get_db)):
     token = secrets.token_hex(32)
     active_sessions[token] = {"id": user.id, "email": user.email, "role": user.role}
 
+    crud.log_activity(
+        db,
+        action="LOGIN_SUCCESS",
+        user_id=user.id,
+        entity_type="user",
+        entity_id=str(user.id),
+        description=f"User {user.username} logged in successfully"
+    )
+
     return {
         "message": "Login successful",
         "session_token": token,          # ← frontend reads this
@@ -176,61 +225,42 @@ def login(data: dict, db: Session = Depends(get_db)):
     }
 
 @app.post("/logout")
-def logout(data: dict):
+def logout(data: dict, db: Session = Depends(get_db)):
     token = data.get("token")
-    active_sessions.pop(token, None)     # invalidate server-side
+    session = active_sessions.pop(token, None)     # invalidate server-side
+    if session and "id" in session:
+        crud.log_activity(
+            db,
+            action="LOGOUT",
+            user_id=session["id"],
+            entity_type="user",
+            entity_id=str(session["id"]),
+            description="User logged out"
+        )
     return {"message": "Logout successful"}
 
-# @app.post("/login")
-# def login(data: dict, db: Session = Depends(get_db)):
-
-#     user = (
-#         db.query(User)
-#         .filter(User.email == data["email"])
-#         .first()
-#     )
-
-#     if not user:
-#         raise HTTPException(
-#             status_code=401,
-#             detail="Invalid email"
-#         )
-
-#     if user.password != data["password"]:
-#         raise HTTPException(
-#             status_code=401,
-#             detail="Invalid password"
-#         )
-
-#     return {
-#         "message": "Login successful",
-#         "user": {
-#             "id": user.id,
-#             "email": user.email,
-#             "role": user.role
-#         }
-#     }
-
-# #logout
-# @app.post("/logout")
-# def logout():
-#     return {
-#         "message": "Logout successful"
-#     }   
 
 @app.post("/users", response_model=schemas.UserResponse)
 def create_user(
     user: schemas.UserCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin)
 ):
-    return crud.create_user(
+    new_user = crud.create_user(db, user)
+    crud.log_activity(
         db,
-        user
+        action="CREATE_USER",
+        user_id=admin_user.id,
+        entity_type="user",
+        entity_id=str(new_user.id),
+        description=f"Created new user {new_user.username} ({new_user.role})"
     )
+    return new_user
 
 @app.get("/users", response_model=list[schemas.UserResponse])
 def get_users(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin)
 ):
     return db.query(User).all()
 
@@ -238,36 +268,51 @@ def get_users(
 def update_user(
     user_id: int,
     data: schemas.UserUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin)
 ):
     user, error = crud.update_user(db, user_id, data)
     if error == "User not found.":
         raise HTTPException(status_code=404, detail="User not found.")
     if error:
         raise HTTPException(status_code=400, detail=error)
+    crud.log_activity(
+        db,
+        action="UPDATE_USER",
+        user_id=admin_user.id,
+        entity_type="user",
+        entity_id=str(user.id),
+        description=f"Updated user details for {user.username}"
+    )
     return user
 
 @app.get("/users/all")
-def get_all_users_count(db: Session = Depends(get_db)):
+def get_all_users_count(
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin)
+):
     total = db.query(User).count()
     return {"total": total}
 
 
-@app.post("/customers")
+@app.post("/customers", response_model=schemas.CustomerResponse)
 def create_customer(
     customer: schemas.CustomerCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    return crud.create_customer(
+    item = crud.create_customer(db, customer, record_source="manual")
+    crud.log_activity(
         db,
-        customer
+        action="CREATE_CUSTOMER",
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=str(item.id),
+        entity_code=item.customer_code,
+        description=f"Created New Entry customer {item.Customer_Name} ({item.customer_code})"
     )
+    return item
 
-# @app.get("/customers/all")
-# def get_customers(
-#     db: Session = Depends(get_db)
-# ):
-#     return db.query(Customer).all()
 
 @app.get("/customers/all")
 def get_all_customers_count(db: Session = Depends(get_db)):
@@ -288,89 +333,136 @@ def get_customers_overview(db: Session = Depends(get_db)):
         if row.Branch and str(row.Branch).strip().lower() not in ("nan", "null", "none")
     ]
 
+@app.get("/customers/by-code/{customer_code}", response_model=schemas.CustomerResponse)
+def get_customer_by_code(
+    customer_code: str,
+    db: Session = Depends(get_db),
+):
+    customer = crud.get_customer_by_code(db, customer_code)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return customer
+
 @app.get("/customers")
 def get_customers(
     page: int = 1,
     limit: int = 10,
+    search: str = None,
+    record_source: str = None,
+    sort_by: str = "id",
+    sort_dir: str = "asc",
     db: Session = Depends(get_db)
 ):
-    total = db.query(Customer).count()
+    query = db.query(Customer)
+    if search:
+        s = f"%{search.strip()}%"
+        query = query.filter(
+            (Customer.customer_code.ilike(s)) |
+            (Customer.Customer_Name.ilike(s)) |
+            (Customer.Branch.ilike(s)) |
+            (Customer.Zone.ilike(s))
+        )
+    if record_source and record_source.strip().lower() != "all":
+        query = query.filter(Customer.record_source.ilike(record_source.strip()))
+
+    sort_column = getattr(Customer, sort_by, Customer.id)
+    if sort_dir.lower() == "desc":
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+
+    total = query.count()
     offset = (page - 1) * limit
-    customers = db.query(Customer).offset(offset).limit(limit).all()
+    customers = query.offset(offset).limit(limit).all()
     
     return {
         "total": total,
         "page": page,
         "limit": limit,
-        "total_pages": (total + limit - 1) // limit,
-        "data": customers
+        "total_pages": (total + limit - 1) // limit if limit else 0,
+        "data": [schemas.CustomerResponse.model_validate(c) for c in customers]
     }
 
 
 @app.post("/customers/upload")
 async def upload_customers(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-
     try:
-
         if file.filename.endswith(".csv"):
-
-            df = pd.read_csv(
-                file.file
-            )
-
+            df = pd.read_csv(file.file)
         elif file.filename.endswith(".xlsx"):
-
-            df = pd.read_excel(
-                file.file
-            )
-
+            df = pd.read_excel(file.file)
         else:
-
             raise HTTPException(
                 status_code=400,
                 detail="Only CSV or XLSX allowed"
             )
 
+        req_cols = ["Customer Name", "Branch", "Zone", "September", "October", "November"]
+        missing_headers = [col for col in req_cols if col not in df.columns]
+        if missing_headers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required columns in upload file: {', '.join(missing_headers)}"
+            )
 
-        inserted = []
-
+        inserted_count = 0
+        skipped_count = 0
 
         for _, row in df.iterrows():
+            c_name = str(row["Customer Name"]).strip() if pd.notna(row["Customer Name"]) else None
+            c_branch = str(row["Branch"]).strip() if pd.notna(row["Branch"]) else None
+            c_zone = str(row["Zone"]).strip() if pd.notna(row["Zone"]) else None
 
-            customer = Customer(
-        Customer_Name=str(row["Customer Name"]),
-        Branch=str(row["Branch"]),
-        Zone=str(row["Zone"]),
-        september=int(row["September"]) if pd.notna(row["September"]) else 0,
-        october=int(row["October"])     if pd.notna(row["October"])    else 0,
-        november=int(row["November"])   if pd.notna(row["November"])   else 0,
-    )
+            # Skip row if any required text field is missing or invalid "nan"
+            if not c_name or c_name.lower() == "nan" or not c_branch or c_branch.lower() == "nan" or not c_zone or c_zone.lower() == "nan":
+                skipped_count += 1
+                continue
 
-            db.add(
-                customer
-            )
+            try:
+                sep_val = float(row["September"])
+                oct_val = float(row["October"])
+                nov_val = float(row["November"])
+                if pd.isna(sep_val) or pd.isna(oct_val) or pd.isna(nov_val):
+                    skipped_count += 1
+                    continue
+            except (ValueError, TypeError):
+                skipped_count += 1
+                continue
 
-            inserted.append(
-                customer
-            )
+            cust_data = {
+                "Customer_Name": c_name,
+                "Branch": c_branch,
+                "Zone": c_zone,
+                "september": round(sep_val, 2),
+                "october": round(oct_val, 2),
+                "november": round(nov_val, 2)
+            }
+            crud.create_customer(db, cust_data, record_source="imported")
+            inserted_count += 1
 
-
-
-        db.commit()
+        crud.log_activity(
+            db,
+            action="IMPORT_CUSTOMERS",
+            user_id=current_user.id,
+            entity_type="customer_import",
+            description=f"Imported dataset file '{file.filename}': {inserted_count} inserted, {skipped_count} skipped"
+        )
 
         return {
-            "message":
-            f"{len(inserted)} customers uploaded"
+            "message": f"{inserted_count} customers uploaded successfully ({skipped_count} skipped).",
+            "inserted": inserted_count,
+            "skipped": skipped_count
         }
 
-
-    except Exception as e:
-
+    except HTTPException:
         db.rollback()
-
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -380,11 +472,13 @@ async def upload_customers(
 # Helper to map database model to Pydantic-compatible response format
 def map_prediction_response(item):
     cust_name = item.customer.Customer_Name if item.customer else "Unknown Customer"
+    cust_code = item.customer.customer_code if item.customer else None
     read_date = item.created_at.strftime("%Y-%m-%d") if item.created_at else ""
     user_fullname = item.user.fullname if getattr(item, "user", None) else None
     return {
         "id": item.id,
         "customer_id": item.customer_id,
+        "customer_code": cust_code,
         "customer_name": cust_name,
         "meter_number": item.meter_number,
         "branch": item.branch,
@@ -424,13 +518,41 @@ async def generate_prediction(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    target_customer = None
+    if data.customer_code:
+        target_customer = crud.get_customer_by_code(db, data.customer_code)
+    elif data.customer_id:
+        target_customer = crud.get_customer_by_id(db, data.customer_id)
+
+    if target_customer:
+        if target_customer.record_source != "manual":
+            raise HTTPException(
+                status_code=400,
+                detail="Prediction is only available for newly added customers."
+            )
+        if target_customer.november is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="November consumption has already been predicted for this customer."
+            )
+
+        sep_val = target_customer.september
+        oct_val = target_customer.october
+        branch_val = target_customer.Branch
+        zone_val = target_customer.Zone
+    else:
+        sep_val = data.September
+        oct_val = data.October
+        branch_val = data.Branch
+        zone_val = data.Zone
+
     payload = {
-        "September": data.September,
-        "October": data.October,
-        "Branch": data.Branch,
-        "Zone": data.Zone
+        "September": sep_val,
+        "October": oct_val,
+        "Branch": branch_val,
+        "Zone": zone_val
     }
-    
+
     try:
         ml_url = f"{ML_SERVICE_URL.rstrip('/')}{ML_PREDICT_ALL_PATH}"
         req = urllib.request.Request(
@@ -443,39 +565,32 @@ async def generate_prediction(
             ml_response = json.loads(response.read().decode("utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ML server error: {e}")
-        
+
     predictions = ml_response.get("predictions", {})
     final_prediction = predictions.get("final_model", 0.0)
-    
-    # Try to find a matching customer to link
-    matching_customer = db.query(Customer).filter(
-        Customer.Branch.ilike(data.Branch),
-        Customer.Zone.ilike(data.Zone)
-    ).first()
-    
-    customer_id = None
-    meter_number = None
-    if matching_customer:
-        customer_id = matching_customer.id
-        meter_number = f"MTR-{1000 + customer_id}"
-    else:
+
+    meter_number = data.meter_number
+    customer_id = target_customer.id if target_customer else None
+    if target_customer:
+        meter_number = f"MTR-{target_customer.customer_code}"
+    elif not meter_number:
         meter_number = f"MTR-{random.randint(1000, 9999)}"
-        
+
     if final_prediction >= 15:
         prediction_status = "high"
     elif final_prediction <= 3:
         prediction_status = "anomaly"
     else:
         prediction_status = "normal"
-        
+
     prediction_dict = {
         "customer_id": customer_id,
         "user_id": current_user.id,
         "meter_number": meter_number,
-        "branch": data.Branch,
-        "zone": data.Zone,
-        "september_consumption": data.September,
-        "october_consumption": data.October,
+        "branch": branch_val,
+        "zone": zone_val,
+        "september_consumption": sep_val,
+        "october_consumption": oct_val,
         "decision_tree_prediction": predictions.get("decision_tree", 0.0),
         "gradient_boosting_prediction": predictions.get("gradient_boosting", 0.0),
         "linear_regression_prediction": predictions.get("linear_regression", 0.0),
@@ -487,11 +602,65 @@ async def generate_prediction(
         "prediction_status": prediction_status,
         "notes": data.notes
     }
-    
+
+    # Save prediction history and lock customer November value atomically
     db_prediction = crud.create_prediction_history(db, prediction_dict)
-    # Reload with relationships for response mapping
+    if target_customer:
+        target_customer.november = final_prediction
+        db.commit()
+
+    crud.log_activity(
+        db,
+        action="GENERATE_PREDICTION",
+        user_id=current_user.id,
+        entity_type="prediction",
+        entity_id=str(db_prediction.id),
+        entity_code=target_customer.customer_code if target_customer else None,
+        description=f"Generated November prediction ({final_prediction:.2f} m³) for customer {target_customer.customer_code if target_customer else 'N/A'}"
+    )
+
     db_prediction = crud.get_prediction_by_id(db, db_prediction.id)
     return map_prediction_response(db_prediction)
+
+
+@app.get("/activity-logs")
+def list_activity_logs(
+    page: int = 1,
+    limit: int = 10,
+    search: str = None,
+    user_id: int = None,
+    action: str = None,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin),
+):
+    total, items = crud.get_activity_logs(
+        db=db, page=page, limit=limit, search=search,
+        user_id=user_id, action=action
+    )
+    result_data = []
+    for item in items:
+        u_fullname = item.user.fullname if item.user else "System"
+        u_role = item.user.role if item.user else "system"
+        result_data.append({
+            "id": item.id,
+            "user_id": item.user_id,
+            "user_fullname": u_fullname,
+            "user_role": u_role,
+            "action": item.action,
+            "entity_type": item.entity_type,
+            "entity_id": item.entity_id,
+            "entity_code": item.entity_code,
+            "description": item.description,
+            "created_at": item.created_at
+        })
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit if limit else 0,
+        "data": result_data
+    }
 
 # GET /predictions - lists prediction history with paging and role-based filtering
 @app.get("/predictions")
@@ -569,17 +738,33 @@ def delete_prediction(
     success = crud.delete_prediction(db, id)
     if not success:
         raise HTTPException(status_code=404, detail="Prediction not found")
+    crud.log_activity(
+        db,
+        action="DELETE_PREDICTION",
+        user_id=current_user.id,
+        entity_type="prediction",
+        entity_id=str(id),
+        description=f"Deleted prediction record #{id}"
+    )
     return {"message": "Prediction deleted successfully"}
 
 # GET /reports/summary - statistics summary cards
 @app.get("/reports/summary")
-def get_reports_summary(db: Session = Depends(get_db)):
+def get_reports_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     from sqlalchemy import func
-    total_predictions = db.query(PredictionHistory).count()
-    anomalies_count = db.query(PredictionHistory).filter(PredictionHistory.prediction_status == "anomaly").count()
+    base_query = crud.apply_role_visibility(db.query(PredictionHistory), current_user)
     
-    # Calculate accuracy comparing predictions with actual november values
-    with_november = db.query(PredictionHistory).join(Customer).filter(Customer.november > 0).all()
+    total_predictions = base_query.count()
+    anomalies_count = base_query.filter(PredictionHistory.prediction_status == "anomaly").count()
+    
+    # Calculate accuracy comparing predictions ONLY with actual imported november reference data
+    with_november = base_query.join(Customer).filter(
+        Customer.record_source == "imported",
+        Customer.november > 0
+    ).all()
     if with_november:
         accurate = sum(1 for p in with_november if abs(p.final_prediction - p.customer.november) <= 2)
         accuracy_pct = round((accurate / len(with_november)) * 100, 1)
@@ -589,7 +774,7 @@ def get_reports_summary(db: Session = Depends(get_db)):
     validated_count = max(0, total_predictions - anomalies_count)
     
     # Find the highest prediction record with its meter reading details
-    highest_record = db.query(PredictionHistory).order_by(
+    highest_record = base_query.order_by(
         PredictionHistory.final_prediction.desc()
     ).first()
     
@@ -614,7 +799,7 @@ def get_reports_summary(db: Session = Depends(get_db)):
         }
     
     # Find the lowest prediction record with its meter reading details
-    lowest_record = db.query(PredictionHistory).order_by(
+    lowest_record = base_query.order_by(
         PredictionHistory.final_prediction.asc()
     ).first()
     
@@ -651,14 +836,18 @@ def get_reports_summary(db: Session = Depends(get_db)):
 
 # GET /reports/statistics - statistics details
 @app.get("/reports/statistics")
-def get_reports_statistics(db: Session = Depends(get_db)):
+def get_reports_statistics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     from sqlalchemy import func
-    avg_pred = db.query(func.avg(PredictionHistory.final_prediction)).scalar() or 0.0
-    min_pred = db.query(func.min(PredictionHistory.final_prediction)).scalar() or 0.0
-    max_pred = db.query(func.max(PredictionHistory.final_prediction)).scalar() or 0.0
+    avg_pred = crud.apply_role_visibility(db.query(func.avg(PredictionHistory.final_prediction)), current_user).scalar() or 0.0
+    min_pred = crud.apply_role_visibility(db.query(func.min(PredictionHistory.final_prediction)), current_user).scalar() or 0.0
+    max_pred = crud.apply_role_visibility(db.query(func.max(PredictionHistory.final_prediction)), current_user).scalar() or 0.0
     
-    status_counts = db.query(
-        PredictionHistory.prediction_status, func.count(PredictionHistory.id)
+    status_counts = crud.apply_role_visibility(
+        db.query(PredictionHistory.prediction_status, func.count(PredictionHistory.id)),
+        current_user
     ).group_by(PredictionHistory.prediction_status).all()
     status_distribution = {status: count for status, count in status_counts}
     
@@ -669,7 +858,7 @@ def get_reports_statistics(db: Session = Depends(get_db)):
     model_averages = {}
     for model in models_to_check:
         col_name = f"{model}_prediction"
-        val = db.query(func.avg(getattr(PredictionHistory, col_name))).scalar() or 0.0
+        val = crud.apply_role_visibility(db.query(func.avg(getattr(PredictionHistory, col_name))), current_user).scalar() or 0.0
         model_averages[model] = round(val, 2)
         
     return {
@@ -682,13 +871,19 @@ def get_reports_statistics(db: Session = Depends(get_db)):
 
 # GET /reports/charts - reports charts data
 @app.get("/reports/charts")
-def get_reports_charts(db: Session = Depends(get_db)):
+def get_reports_charts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     from sqlalchemy import func
-    branch_data = db.query(
-        PredictionHistory.branch,
-        func.avg(PredictionHistory.september_consumption).label("sep"),
-        func.avg(PredictionHistory.october_consumption).label("oct"),
-        func.avg(PredictionHistory.final_prediction).label("nov")
+    branch_data = crud.apply_role_visibility(
+        db.query(
+            PredictionHistory.branch,
+            func.avg(PredictionHistory.september_consumption).label("sep"),
+            func.avg(PredictionHistory.october_consumption).label("oct"),
+            func.avg(PredictionHistory.final_prediction).label("nov")
+        ),
+        current_user
     ).group_by(PredictionHistory.branch).all()
     
     branch_summary = [
@@ -700,16 +895,22 @@ def get_reports_charts(db: Session = Depends(get_db)):
         } for row in branch_data if row.branch
     ]
     
-    zone_data = db.query(
-        PredictionHistory.zone,
-        func.count(PredictionHistory.id).label("count")
+    zone_data = crud.apply_role_visibility(
+        db.query(
+            PredictionHistory.zone,
+            func.count(PredictionHistory.id).label("count")
+        ),
+        current_user
     ).group_by(PredictionHistory.zone).all()
     zone_distribution = [
         {"name": row.zone, "value": row.count} for row in zone_data if row.zone
     ]
     
-    # Paired accuracy over recent predictions
-    paired = db.query(PredictionHistory).join(Customer).filter(Customer.november > 0).limit(10).all()
+    # Paired accuracy over recent predictions with imported actual data
+    paired = crud.apply_role_visibility(db.query(PredictionHistory), current_user).join(Customer).filter(
+        Customer.record_source == "imported",
+        Customer.november > 0
+    ).limit(10).all()
     prediction_accuracy = []
     if paired:
         for p in paired:
@@ -784,6 +985,14 @@ def export_csv(
                 date_str,
             ])
 
+    crud.log_activity(
+        db,
+        action="EXPORT_REPORT",
+        user_id=current_user.id,
+        entity_type="report",
+        description="Exported prediction history report (CSV)"
+    )
+
     output.seek(0)
     return StreamingResponse(
         io.BytesIO(output.getvalue().encode("utf-8")),
@@ -823,6 +1032,14 @@ def export_excel(
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Prediction History")
     output.seek(0)
+
+    crud.log_activity(
+        db,
+        action="EXPORT_REPORT",
+        user_id=current_user.id,
+        entity_type="report",
+        description="Exported prediction history report (Excel)"
+    )
 
     return Response(
         output.getvalue(),
@@ -925,11 +1142,20 @@ def export_pdf(
     doc.build(elements)
     buffer.seek(0)
 
+    crud.log_activity(
+        db,
+        action="EXPORT_REPORT",
+        user_id=current_user.id,
+        entity_type="report",
+        description="Exported prediction history report (PDF)"
+    )
+
     return Response(
         buffer.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=prediction_history_report.pdf"}
     )
+
 
     
 
