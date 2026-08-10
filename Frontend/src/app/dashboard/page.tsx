@@ -1,5 +1,5 @@
 "use client";
-import { Users, HeartHandshake, TrendingUp, TrendingDown } from "lucide-react";
+import { Users, HeartHandshake, TrendingUp, TrendingDown, Clock, UserMinus } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import {
@@ -14,30 +14,50 @@ import {
 import { useEffect, useState } from "react";
 import { API_URL } from "@/lib/config";
 import { ChartFrame } from "@/components/charts/ChartFrame";
-import { authHeaders } from "@/lib/session";
+import { authHeaders, getSession, isAdminRole } from "@/lib/session";
 
 const FASTAPI_BASE = API_URL;
 
 export default function DashboardPage() {
-  const [totalCustomers, setTotalCustomers] = useState<number | null>(null);
-  const [totalUsers, setTotalUsers] = useState<number | null>(null);
-  const [highestPrediction, setHighestPrediction] = useState<number | null>(null);
-  const [lowestPrediction, setLowestPrediction] = useState<number | null>(null);
   const [customerOverview, setCustomerOverview] = useState<
     { name: string; total: number }[]
   >([]);
+  const [adminStats, setAdminStats] = useState<{
+    total_customers: number;
+    total_users: number;
+    pending_predictions: number;
+    unassigned_staff: number;
+  } | null>(null);
+  const [staffStats, setStaffStats] = useState<{
+    branch_customers: number;
+    branch_zones: number;
+    highest_prediction: number | null;
+    pending_predictions: number;
+    assigned_branch: string | null;
+  } | null>(null);
+
+  const session = getSession();
+  const user = session?.user as any;
+  const isAdmin = isAdminRole(user?.role);
+  const userBranch = user?.assigned_branch || "";
 
   useEffect(() => {
     const headers = authHeaders();
     let cancelled = false;
 
     const load = async () => {
-      const [overviewRes, usersRes, customersRes, summaryRes] = await Promise.allSettled([
+      const promises = [
         fetch(`${FASTAPI_BASE}/customers/overview`, { headers }),
-        fetch(`${FASTAPI_BASE}/users/all`, { headers }),
-        fetch(`${FASTAPI_BASE}/customers/all`, { headers }),
-        fetch(`${FASTAPI_BASE}/reports/summary`, { headers }),
-      ]);
+      ];
+
+      if (isAdmin) {
+        promises.push(fetch(`${FASTAPI_BASE}/dashboard/admin-stats`, { headers }));
+      } else {
+        promises.push(fetch(`${FASTAPI_BASE}/dashboard/staff-stats`, { headers }));
+      }
+
+      const results = await Promise.allSettled(promises);
+      const [overviewRes, statsRes] = results;
 
       if (cancelled) return;
 
@@ -59,40 +79,18 @@ export default function DashboardPage() {
         setCustomerOverview([]);
       }
 
-      if (usersRes.status === "fulfilled" && usersRes.value.ok) {
+      if (statsRes?.status === "fulfilled" && statsRes.value.ok) {
         try {
-          const data = await usersRes.value.json();
-          setTotalUsers(data.total ?? 0);
+          const data = await statsRes.value.json();
+          if (isAdmin) {
+            setAdminStats(data);
+          } else {
+            setStaffStats(data);
+          }
         } catch {
-          setTotalUsers(0);
+          if (isAdmin) setAdminStats(null);
+          else setStaffStats(null);
         }
-      } else {
-        setTotalUsers(0);
-      }
-
-      if (customersRes.status === "fulfilled" && customersRes.value.ok) {
-        try {
-          const data = await customersRes.value.json();
-          setTotalCustomers(data.total ?? 0);
-        } catch {
-          setTotalCustomers(0);
-        }
-      } else {
-        setTotalCustomers(0);
-      }
-
-      if (summaryRes.status === "fulfilled" && summaryRes.value.ok) {
-        try {
-          const data = await summaryRes.value.json();
-          setHighestPrediction(data.highest_prediction ?? null);
-          setLowestPrediction(data.lowest_prediction ?? null);
-        } catch {
-          setHighestPrediction(null);
-          setLowestPrediction(null);
-        }
-      } else {
-        setHighestPrediction(null);
-        setLowestPrediction(null);
       }
     };
 
@@ -106,41 +104,72 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold font-heading text-slate-800 dark:text-slate-100">
-          Dashboard Overview
+          {isAdmin ? "Dashboard Overview" : `${userBranch} Dashboard`}
         </h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard
-          title="Total Customers"
-          value={
-            totalCustomers === null ? "..." : totalCustomers.toLocaleString()
-          }
-          icon={<Users className="w-6 h-6" />}
-          trend={{ value: "12%", isPositive: true }}
-        />
-        <StatCard
-          title="Total Users"
-          value={totalUsers === null ? "..." : totalUsers.toLocaleString()}
-          icon={<HeartHandshake className="w-6 h-6" />}
-          trend={{ value: "1%", isPositive: true }}
-        />
-        <StatCard
-          title="Highest Prediction"
-          value={highestPrediction !== null ? `${highestPrediction} m³` : "..."}
-          icon={<TrendingUp className="w-6 h-6" />}
-        />
-        <StatCard
-          title="Lowest Prediction"
-          value={lowestPrediction !== null ? `${lowestPrediction} m³` : "..."}
-          icon={<TrendingDown className="w-6 h-6" />}
-        />
+        {isAdmin ? (
+          <>
+            <StatCard
+              title="Total Customers"
+              value={adminStats ? adminStats.total_customers.toLocaleString() : "..."}
+              icon={<Users className="w-6 h-6" />}
+              subtitle="Across all branches"
+            />
+            <StatCard
+              title="Total Users"
+              value={adminStats ? adminStats.total_users.toLocaleString() : "..."}
+              icon={<HeartHandshake className="w-6 h-6" />}
+              subtitle="Registered system users"
+            />
+            <StatCard
+              title="Pending Predictions"
+              value={adminStats ? adminStats.pending_predictions.toLocaleString() : "..."}
+              icon={<Clock className="w-6 h-6" />}
+              subtitle="New customers awaiting November prediction"
+            />
+            <StatCard
+              title="Unassigned Staff"
+              value={adminStats ? adminStats.unassigned_staff.toLocaleString() : "..."}
+              icon={<UserMinus className="w-6 h-6" />}
+              subtitle={adminStats && adminStats.unassigned_staff === 0 ? "All staff assigned" : "Staff waiting for branch assignment"}
+            />
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Branch Customers"
+              value={!staffStats ? "..." : staffStats.branch_customers.toLocaleString()}
+              icon={<Users className="w-6 h-6" />}
+              subtitle={staffStats?.assigned_branch ? `Customers in ${staffStats.assigned_branch}` : (staffStats ? "No branch assigned. Contact an administrator." : "")}
+            />
+            <StatCard
+              title="Branch Zones"
+              value={!staffStats ? "..." : staffStats.branch_zones.toLocaleString()}
+              icon={<HeartHandshake className="w-6 h-6" />}
+              subtitle={staffStats?.assigned_branch ? `Zones in ${staffStats.assigned_branch}` : (staffStats ? "No branch assigned. Contact an administrator." : "")}
+            />
+            <StatCard
+              title="Highest Prediction"
+              value={!staffStats ? "..." : (staffStats.highest_prediction !== null ? `${staffStats.highest_prediction} m³` : "—")}
+              icon={<TrendingUp className="w-6 h-6" />}
+              subtitle={staffStats?.assigned_branch ? (staffStats.highest_prediction !== null ? "Highest prediction in your branch" : "No predictions yet") : (staffStats ? "No branch assigned. Contact an administrator." : "")}
+            />
+            <StatCard
+              title="Pending Predictions"
+              value={!staffStats ? "..." : staffStats.pending_predictions.toLocaleString()}
+              icon={<Clock className="w-6 h-6" />}
+              subtitle={staffStats?.assigned_branch ? "Awaiting November prediction" : (staffStats ? "No branch assigned. Contact an administrator." : "")}
+            />
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Branch Overview</CardTitle>
+            <CardTitle>{isAdmin ? "Branch Overview" : "Customers by Zone"}</CardTitle>
           </CardHeader>
           <CardContent>
             <ChartFrame>

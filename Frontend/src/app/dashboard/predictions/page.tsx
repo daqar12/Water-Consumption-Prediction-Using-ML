@@ -13,7 +13,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     LineChart, Line, Area, AreaChart
 } from "recharts";
-import { authHeaders } from "@/lib/session";
+import { authHeaders, getSession, isAdminRole } from "@/lib/session";
 import { API_URL } from "@/lib/config";
 import { ClientOnly } from "@/components/ClientOnly";
 
@@ -185,6 +185,18 @@ export default function MLPredictionsPage() {
     const [zone, setZone] = useState("");
     const [notes, setNotes] = useState("");
 
+    const session = getSession();
+    const user = session?.user as any;
+    const isAdmin = isAdminRole(user?.role);
+    const userBranch = user?.assigned_branch || "";
+
+    // Auto-set branch for staff
+    useEffect(() => {
+        if (!isAdmin && userBranch && !branch && !loadedCustomer) {
+            setBranch(userBranch);
+        }
+    }, [isAdmin, userBranch, branch, loadedCustomer]);
+
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<PredictionResult | null>(null);
     const [apiError, setApiError] = useState("");
@@ -264,12 +276,16 @@ export default function MLPredictionsPage() {
         }
     };
 
-    const clearLoadedCustomer = () => {
+    const clearLoadedCustomer = (preserveCode = false) => {
         setLoadedCustomer(null);
-        setCustomerCode("");
+        if (preserveCode !== true) setCustomerCode("");
         setSeptember("");
         setOctober("");
-        setBranch("");
+        if (!isAdmin && userBranch) {
+            setBranch(userBranch);
+        } else {
+            setBranch("");
+        }
         setZone("");
         setApiError("");
         setCustomerSearchError("");
@@ -351,13 +367,12 @@ export default function MLPredictionsPage() {
     };
 
     const isFormValid = (() => {
+        if (!loadedCustomer) return false;
         if (!september || !october || !branch || !zone) return false;
         if (validateConsumptionField(september, "September")) return false;
         if (validateConsumptionField(october, "October")) return false;
-        if (loadedCustomer) {
-            if (loadedCustomer.record_source === "imported") return false;
-            if (loadedCustomer.november !== null && loadedCustomer.november !== undefined) return false;
-        }
+        if (loadedCustomer.record_source === "imported") return false;
+        if (loadedCustomer.november !== null && loadedCustomer.november !== undefined) return false;
         return true;
     })();
 
@@ -389,7 +404,7 @@ export default function MLPredictionsPage() {
         setResult(null);
 
         const payload = {
-            customer_code: loadedCustomer ? loadedCustomer.customer_code : (customerCode.trim() || undefined),
+            customer_code: loadedCustomer ? loadedCustomer.customer_code : "",
             September: parseFloat(september),
             October: parseFloat(october),
             Branch: branch,
@@ -548,7 +563,7 @@ export default function MLPredictionsPage() {
                             <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide flex items-center justify-between">
                                 <span>Load Customer by Code</span>
                                 {loadedCustomer && (
-                                    <button onClick={clearLoadedCustomer} className="text-[11px] text-primary hover:underline flex items-center gap-1">
+                                    <button onClick={() => clearLoadedCustomer()} className="text-[11px] text-primary hover:underline flex items-center gap-1">
                                         <X className="w-3 h-3" /> Clear Customer
                                     </button>
                                 )}
@@ -557,7 +572,10 @@ export default function MLPredictionsPage() {
                                 <input
                                     type="text"
                                     value={customerCode}
-                                    onChange={(e) => setCustomerCode(e.target.value)}
+                                    onChange={(e) => {
+                                        setCustomerCode(e.target.value);
+                                        if (loadedCustomer) clearLoadedCustomer(true);
+                                    }}
                                     placeholder="Enter Customer Code (e.g. CUS-00001)"
                                     className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/30"
                                 />
@@ -599,7 +617,7 @@ export default function MLPredictionsPage() {
                                 min="0.5"
                                 max="100000"
                                 step="0.01"
-                                disabled={!!loadedCustomer}
+                                disabled={true}
                                 onKeyDown={blockInvalidKeys}
                                 onPaste={(e) => handlePaste(e, setSeptember, "september", "September")}
                                 onChange={(e) => {
@@ -625,7 +643,7 @@ export default function MLPredictionsPage() {
                                 min="0.5"
                                 max="100000"
                                 step="0.01"
-                                disabled={!!loadedCustomer}
+                                disabled={true}
                                 onKeyDown={blockInvalidKeys}
                                 onPaste={(e) => handlePaste(e, setOctober, "october", "October")}
                                 onChange={(e) => {
@@ -640,35 +658,25 @@ export default function MLPredictionsPage() {
                             {errors.october && <p className="text-xs text-red-500 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" />{errors.october}</p>}
                         </div>
 
-                        {/* Branch */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Branch</label>
-                            {loadedCustomer ? (
-                                <input
-                                    type="text"
-                                    value={branch}
-                                    disabled
-                                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                                />
-                            ) : (
-                                <Select label="Select Branch" options={branchList} value={branch} onChange={(v) => { setBranch(v); setZone(""); setErrors((p) => ({ ...p, branch: "", zone: "" })); }} />
-                            )}
+                            <input
+                                type="text"
+                                value={branch}
+                                disabled
+                                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                            />
                             {errors.branch && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.branch}</p>}
                         </div>
 
-                        {/* Zone */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Zone</label>
-                            {loadedCustomer ? (
-                                <input
-                                    type="text"
-                                    value={zone}
-                                    disabled
-                                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
-                                />
-                            ) : (
-                                <Select label="Select Zone" options={branch ? (branchZones[branch] || []) : []} value={zone} onChange={(v) => { setZone(v); setErrors((p) => ({ ...p, zone: "" })); }} />
-                            )}
+                            <input
+                                type="text"
+                                value={zone}
+                                disabled
+                                className="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/60 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-100 disabled:opacity-60 disabled:cursor-not-allowed"
+                            />
                             {errors.zone && <p className="text-xs text-red-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{errors.zone}</p>}
                         </div>
 

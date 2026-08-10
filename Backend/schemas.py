@@ -12,6 +12,7 @@ class UserCreate(BaseModel):
     email: str
     phone: str
     password: str
+    assigned_branch: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -19,6 +20,7 @@ class UserUpdate(BaseModel):
     phone: str
     email: str
     password: Optional[str] = None
+    assigned_branch: Optional[str] = None
 
     @field_validator("fullname")
     @classmethod
@@ -77,6 +79,7 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     email: str
     role: str
+    assigned_branch: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -133,6 +136,43 @@ class CustomerResponse(BaseModel):
     november: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerUpdate(BaseModel):
+    Customer_Name: Optional[str] = None
+    Branch: Optional[str] = None
+    Zone: Optional[str] = None
+    september: Optional[float] = None
+    october: Optional[float] = None
+    # Staff cannot change Branch/Zone but Admin can, handled in logic
+
+    @field_validator("september", "october")
+    @classmethod
+    def validate_monthly_consumption(cls, v: Optional[float], info) -> Optional[float]:
+        if v is None:
+            return v
+        field_name = info.field_name.capitalize()
+        MIN_CONSUMPTION = 0.5
+        MAX_CONSUMPTION = 100000
+
+        if not math.isfinite(v):
+            raise ValueError(f"{field_name} consumption must be a finite number.")
+
+        if v < MIN_CONSUMPTION:
+            raise ValueError("Water consumption must be at least 0.5 m\u00b3.")
+
+        if v > MAX_CONSUMPTION:
+            raise ValueError(
+                f"{field_name} consumption must be between {MIN_CONSUMPTION} and 100,000 m\u00b3."
+            )
+
+        if round(v, 2) != v:
+            raise ValueError(f"{field_name} consumption allows a maximum of 2 decimal places.")
+
+        return round(v, 2)
+
+class PredictionResetRequest(BaseModel):
+    reason: str
 
 
 class ActivityLogResponse(BaseModel):

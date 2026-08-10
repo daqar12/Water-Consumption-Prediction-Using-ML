@@ -23,6 +23,16 @@ from config import (
     ML_REQUEST_TIMEOUT,
     ML_SERVICE_URL,
 )
+
+BRANCH_ZONES = {
+    "Bakaaro": ["Yaaqshiid", "W.Nabada 2", "W.Nabada 1", "H.Wadaag 2", "H.Wadaag 1"],
+    "Dayniile": ["Gubta 1", "Gubta 2", "Raadeel", "Oodweyne", "Wardheere"],
+    "Garasbaaleey": ["Tabeelaha", "Tareedisho", "Galmudug", "Warlalis"],
+    "Hodan": ["Zope", "Seebiyaano"],
+    "Waaberi": ["Maajo", "Buulo Weekiyo", "Tareebiyaano"],
+    "Xamar Jajab": ["Buundada"],
+    "Xamar Wayne": ["Beerta"]
+}
 from database import (
     engine,
     Base,
@@ -59,6 +69,12 @@ def _ensure_enhanced_schema_and_backfill():
                         "CREATE INDEX IF NOT EXISTS ix_prediction_history_user_id "
                         "ON prediction_history (user_id)"
                     ))
+
+        if "users" in inspector.get_table_names():
+            cols = {c["name"] for c in inspector.get_columns("users")}
+            if "assigned_branch" not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN assigned_branch VARCHAR(100)"))
 
         if "customers" in inspector.get_table_names():
             cols = {c["name"] for c in inspector.get_columns("customers")}
@@ -220,7 +236,8 @@ def login(data: dict, db: Session = Depends(get_db)):
             "role": user.role,
             "fullname": user.fullname,
             "username": user.username,
-            "phone": user.phone
+            "phone": user.phone,
+            "assigned_branch": user.assigned_branch
         },
     }
 
@@ -301,6 +318,15 @@ def create_customer(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if not _is_admin(current_user):
+        if not current_user.assigned_branch:
+            raise HTTPException(status_code=403, detail="No branch assigned. Contact an administrator.")
+        customer.Branch = current_user.assigned_branch
+        
+        valid_zones = BRANCH_ZONES.get(customer.Branch, [])
+        if customer.Zone not in valid_zones:
+            raise HTTPException(status_code=400, detail=f"Invalid zone '{customer.Zone}' for branch '{customer.Branch}'.")
+
     item = crud.create_customer(db, customer, record_source="manual")
     crud.log_activity(
         db,
@@ -315,32 +341,42 @@ def create_customer(
 
 
 @app.get("/customers/all")
-def get_all_customers_count(db: Session = Depends(get_db)):
-    total = db.query(Customer).count()
+def get_all_customers_count(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = db.query(Customer)
+    if not _is_admin(current_user):
+        if not current_user.assigned_branch:
+            return {"total": 0}
+        query = query.filter(Customer.Branch == current_user.assigned_branch)
+    total = query.count()
     return {"total": total}
 
 @app.get("/customers/overview")
-def get_customers_overview(db: Session = Depends(get_db)):
+def get_customers_overview(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from sqlalchemy import func
-    results = (
-        db.query(Customer.Branch, func.count(Customer.id).label("total"))
-        .group_by(Customer.Branch)
-        .all()
-    )
-    return [
-        {"name": row.Branch, "total": row.total} 
-        for row in results 
-        if row.Branch and str(row.Branch).strip().lower() not in ("nan", "null", "none")
-    ]
+    if not _is_admin(current_user):
+        if not current_user.assigned_branch:
+            return []
+        query = db.query(Customer.Zone.label("name"), func.count(Customer.id).label("total"))
+        query = query.filter(Customer.Branch == current_user.assigned_branch)
+        results = query.group_by(Customer.Zone).all()
+        return [{"name": row.name, "total": row.total} for row in results if row.name]
+    else:
+        query = db.query(Customer.Branch.label("name"), func.count(Customer.id).label("total"))
+        results = query.group_by(Customer.Branch).all()
+        return [{"name": row.name, "total": row.total} for row in results if row.name and str(row.name).strip().lower() not in ("nan", "null", "none")]
 
 @app.get("/customers/by-code/{customer_code}", response_model=schemas.CustomerResponse)
 def get_customer_by_code(
     customer_code: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     customer = crud.get_customer_by_code(db, customer_code)
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    if not _is_admin(current_user):
+        if not current_user.assigned_branch or customer.Branch != current_user.assigned_branch:
+            raise HTTPException(status_code=403, detail="Customer belongs to another branch")
     return customer
 
 @app.get("/customers")
@@ -351,9 +387,16 @@ def get_customers(
     record_source: str = None,
     sort_by: str = "id",
     sort_dir: str = "asc",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = db.query(Customer)
+    
+    if not _is_admin(current_user):
+        if not current_user.assigned_branch:
+            return {"total": 0, "page": page, "limit": limit, "total_pages": 0, "data": []}
+        query = query.filter(Customer.Branch == current_user.assigned_branch)
+
     if search:
         s = f"%{search.strip()}%"
         query = query.filter(
@@ -468,6 +511,90 @@ async def upload_customers(
             detail=str(e)
         )
     
+@app.put("/customers/{customer_id}", response_model=schemas.CustomerResponse)
+def update_customer_endpoint(
+    customer_id: int,
+    data: schemas.CustomerUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    customer = crud.get_customer_by_id(db, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+        
+    is_admin = _is_admin(current_user)
+    
+    if not is_admin:
+        if not current_user.assigned_branch or customer.Branch != current_user.assigned_branch:
+            raise HTTPException(status_code=403, detail="Customer belongs to another branch")
+            
+        # Staff cannot change branch
+        if data.Branch is not None and data.Branch != customer.Branch:
+            raise HTTPException(status_code=403, detail="Staff cannot change customer branch")
+
+    old_data = {
+        "Customer_Name": customer.Customer_Name,
+        "Branch": customer.Branch,
+        "Zone": customer.Zone,
+        "september": customer.september,
+        "october": customer.october
+    }
+    
+    updated_customer = crud.update_customer(db, customer_id, data.model_dump(exclude_unset=True))
+    
+    crud.log_activity(
+        db,
+        action="UPDATE_CUSTOMER",
+        user_id=current_user.id,
+        entity_type="customer",
+        entity_id=str(updated_customer.id),
+        entity_code=updated_customer.customer_code,
+        description=f"Updated customer details for {updated_customer.Customer_Name}",
+        old_data=json.dumps(old_data),
+        new_data=json.dumps(data.model_dump(exclude_unset=True))
+    )
+    
+    return updated_customer
+
+@app.post("/customers/{customer_id}/reset-prediction")
+def reset_customer_prediction(
+    customer_id: int,
+    data: schemas.PredictionResetRequest,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_admin)
+):
+    customer = crud.get_customer_by_id(db, customer_id)
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+        
+    if customer.november is None:
+        raise HTTPException(status_code=400, detail="Customer does not have a prediction to reset")
+        
+    old_value = customer.november
+    
+    # Set to None to allow re-prediction
+    customer.november = None
+    db.commit()
+    
+    # Mark predictions in history for this customer as reset
+    predictions = db.query(PredictionHistory).filter(PredictionHistory.customer_id == customer_id, PredictionHistory.prediction_status != "reset").all()
+    for p in predictions:
+        p.prediction_status = "reset"
+        p.notes = f"Reset by Admin. Reason: {data.reason} | Old Notes: {p.notes or ''}"
+    db.commit()
+    
+    crud.log_activity(
+        db,
+        action="RESET_PREDICTION",
+        user_id=admin_user.id,
+        entity_type="customer",
+        entity_id=str(customer.id),
+        entity_code=customer.customer_code,
+        description=f"Reset November prediction for {customer.customer_code}. Reason: {data.reason}",
+        old_data=json.dumps({"november": old_value})
+    )
+    
+    return {"message": "Prediction reset successfully"}
 
 # Helper to map database model to Pydantic-compatible response format
 def map_prediction_response(item):
@@ -518,33 +645,33 @@ async def generate_prediction(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    target_customer = None
-    if data.customer_code:
-        target_customer = crud.get_customer_by_code(db, data.customer_code)
-    elif data.customer_id:
-        target_customer = crud.get_customer_by_id(db, data.customer_id)
+    if not data.customer_code:
+        raise HTTPException(status_code=400, detail="Customer code is required.")
+        
+    target_customer = crud.get_customer_by_code(db, data.customer_code)
+    
+    if not target_customer:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+        
+    if target_customer.record_source != "manual":
+        raise HTTPException(
+            status_code=400,
+            detail="Prediction is only available for newly added customers."
+        )
+    if target_customer.november is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="November consumption has already been predicted for this customer."
+        )
+        
+    if not _is_admin(current_user):
+        if not current_user.assigned_branch or target_customer.Branch != current_user.assigned_branch:
+            raise HTTPException(status_code=403, detail="Customer belongs to another branch")
 
-    if target_customer:
-        if target_customer.record_source != "manual":
-            raise HTTPException(
-                status_code=400,
-                detail="Prediction is only available for newly added customers."
-            )
-        if target_customer.november is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="November consumption has already been predicted for this customer."
-            )
-
-        sep_val = target_customer.september
-        oct_val = target_customer.october
-        branch_val = target_customer.Branch
-        zone_val = target_customer.Zone
-    else:
-        sep_val = data.September
-        oct_val = data.October
-        branch_val = data.Branch
-        zone_val = data.Zone
+    sep_val = target_customer.september
+    oct_val = target_customer.october
+    branch_val = target_customer.Branch
+    zone_val = target_customer.Zone
 
     payload = {
         "September": sep_val,
@@ -558,8 +685,7 @@ async def generate_prediction(
         req = urllib.request.Request(
             ml_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST"
+            headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(req, timeout=ML_REQUEST_TIMEOUT) as response:
             ml_response = json.loads(response.read().decode("utf-8"))
@@ -569,13 +695,6 @@ async def generate_prediction(
     predictions = ml_response.get("predictions", {})
     final_prediction = predictions.get("final_model", 0.0)
 
-    meter_number = data.meter_number
-    customer_id = target_customer.id if target_customer else None
-    if target_customer:
-        meter_number = f"MTR-{target_customer.customer_code}"
-    elif not meter_number:
-        meter_number = f"MTR-{random.randint(1000, 9999)}"
-
     if final_prediction >= 15:
         prediction_status = "high"
     elif final_prediction <= 3:
@@ -584,9 +703,9 @@ async def generate_prediction(
         prediction_status = "normal"
 
     prediction_dict = {
-        "customer_id": customer_id,
         "user_id": current_user.id,
-        "meter_number": meter_number,
+        "customer_id": target_customer.id,
+        "meter_number": target_customer.customer_code,
         "branch": branch_val,
         "zone": zone_val,
         "september_consumption": sep_val,
@@ -605,9 +724,9 @@ async def generate_prediction(
 
     # Save prediction history and lock customer November value atomically
     db_prediction = crud.create_prediction_history(db, prediction_dict)
-    if target_customer:
-        target_customer.november = final_prediction
-        db.commit()
+    
+    target_customer.november = final_prediction
+    db.commit()
 
     crud.log_activity(
         db,
@@ -615,8 +734,8 @@ async def generate_prediction(
         user_id=current_user.id,
         entity_type="prediction",
         entity_id=str(db_prediction.id),
-        entity_code=target_customer.customer_code if target_customer else None,
-        description=f"Generated November prediction ({final_prediction:.2f} m³) for customer {target_customer.customer_code if target_customer else 'N/A'}"
+        entity_code=target_customer.customer_code,
+        description=f"Generated November prediction ({final_prediction:.2f} m³) for customer {target_customer.customer_code}"
     )
 
     db_prediction = crud.get_prediction_by_id(db, db_prediction.id)
@@ -631,8 +750,12 @@ def list_activity_logs(
     user_id: int = None,
     action: str = None,
     db: Session = Depends(get_db),
-    admin_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
+    is_admin = _is_admin(current_user)
+    if not is_admin:
+        user_id = current_user.id
+        
     total, items = crud.get_activity_logs(
         db=db, page=page, limit=limit, search=search,
         user_id=user_id, action=action
@@ -1157,5 +1280,86 @@ def export_pdf(
     )
 
 
-    
+@app.get("/dashboard/admin-stats")
+def get_admin_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
+    from sqlalchemy import or_
+
+    total_customers = db.query(Customer).count()
+    total_users = db.query(User).count()
+    
+    pending_predictions = db.query(Customer).filter(
+        Customer.record_source == "manual",
+        Customer.november == None
+    ).count()
+
+    unassigned_staff = db.query(User).filter(
+        User.role == "staff",
+        or_(User.assigned_branch == None, User.assigned_branch == "")
+    ).count()
+
+    return {
+        "total_customers": total_customers,
+        "total_users": total_users,
+        "pending_predictions": pending_predictions,
+        "unassigned_staff": unassigned_staff
+    }
+
+@app.get("/dashboard/staff-stats")
+def get_staff_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if _is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Forbidden. For staff only.")
+
+    branch = current_user.assigned_branch
+
+    if not branch:
+        return {
+            "branch_customers": 0,
+            "branch_zones": 0,
+            "highest_prediction": None,
+            "pending_predictions": 0,
+            "assigned_branch": None
+        }
+
+    from sqlalchemy import func
+
+    # 1. Branch Customers
+    branch_customers = db.query(Customer).filter(Customer.Branch == branch).count()
+
+    # 2. Branch Zones
+    branch_zones = db.query(Customer.Zone).filter(Customer.Branch == branch, Customer.Zone.isnot(None)).distinct().count()
+
+    # 3. Highest Prediction
+    # Needs to be from prediction_history or customers? The user said: "highest saved November ML prediction among eligible/new customers in Dayniile."
+    # We can check the max of prediction_history for customers in this branch, or max of customer.november where record_source == manual.
+    # The requirement: "Highest prediction ... among eligible/new customers in Dayniile"
+    # Wait, earlier in reports/summary it used PredictionHistory. Let's use PredictionHistory for this branch. Or Customer.november where record_source='manual'.
+    # Actually, highest_prediction in report summary uses `PredictionHistory.final_prediction`. Let's use that but filtered by branch.
+    highest_record = db.query(PredictionHistory.final_prediction).filter(
+        PredictionHistory.branch == branch
+    ).order_by(PredictionHistory.final_prediction.desc()).first()
+    
+    highest_prediction = round(highest_record[0], 2) if highest_record else None
+
+    # 4. Pending Predictions
+    pending_predictions = db.query(Customer).filter(
+        Customer.Branch == branch,
+        Customer.record_source == "manual",
+        Customer.november.is_(None)
+    ).count()
+
+    return {
+        "branch_customers": branch_customers,
+        "branch_zones": branch_zones,
+        "highest_prediction": highest_prediction,
+        "pending_predictions": pending_predictions,
+        "assigned_branch": branch
+    }

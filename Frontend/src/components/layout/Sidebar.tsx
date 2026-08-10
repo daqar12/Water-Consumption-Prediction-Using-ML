@@ -32,11 +32,10 @@ const menuItems = [
   { name: "Users", icon: Users, href: "/dashboard/users" },
   { name: "Activity Logs", icon: ScrollText, href: "/dashboard/activity-logs" },
   { name: "Reports", icon: FileText, href: "/dashboard/reports" },
-  { name: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
 // Pages hidden from staff
-const STAFF_HIDDEN = ["/dashboard/users", "/dashboard/settings", "/dashboard/activity-logs"];
+const STAFF_HIDDEN = ["/dashboard/users", "/dashboard/activity-logs"];
 
 export function Sidebar() {
   const pathname = usePathname();

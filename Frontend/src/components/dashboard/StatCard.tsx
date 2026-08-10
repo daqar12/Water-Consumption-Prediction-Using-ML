@@ -9,9 +9,10 @@ interface StatCardProps {
         value: string;
         isPositive: boolean;
     };
+    subtitle?: string;
 }
 
-export function StatCard({ title, value, icon, trend }: StatCardProps) {
+export function StatCard({ title, value, icon, trend, subtitle }: StatCardProps) {
     return (
         <Card className="hover:shadow-md transition-shadow">
             <CardContent className="p-6">
@@ -35,6 +36,11 @@ export function StatCard({ title, value, icon, trend }: StatCardProps) {
                                     {trend.value}
                                 </span>{" "}
                                 <span className="text-slate-500">vs last month</span>
+                            </p>
+                        )}
+                        {subtitle && !trend && (
+                            <p className="mb-0 mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                {subtitle}
                             </p>
                         )}
                     </div>

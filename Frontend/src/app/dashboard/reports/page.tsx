@@ -299,7 +299,9 @@ export default function ReportsPage() {
                         {/* Consumption by Zone Bar */}
                         <Card className="lg:col-span-2">
                             <CardHeader>
-                                <CardTitle className="text-lg">Monthly Prediction Summaries by Branch (m³)</CardTitle>
+                                <CardTitle className="text-lg">
+                                    {role === "staff" ? "Monthly Prediction Summaries (m³)" : "Monthly Prediction Summaries by Branch (m³)"}
+                                </CardTitle>
                             </CardHeader>
                             <CardContent>
                                 <div className="h-[260px]">

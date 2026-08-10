@@ -16,6 +16,7 @@ interface User {
   phone: string;
   email: string;
   role: string;
+  assigned_branch?: string;
 }
 
 interface EditFormData {
@@ -24,6 +25,7 @@ interface EditFormData {
   email: string;
   password: string;
   confirmPassword: string;
+  assigned_branch: string;
 }
 
 interface EditFormErrors {
@@ -40,6 +42,7 @@ const emptyAddForm = {
   phone: "",
   fullname: "",
   password: "",
+  assigned_branch: "",
 };
 
 const emptyEditForm: EditFormData = {
@@ -48,7 +51,13 @@ const emptyEditForm: EditFormData = {
   email: "",
   password: "",
   confirmPassword: "",
+  assigned_branch: "",
 };
+
+const branchList = [
+  "Bakaaro", "Dayniile", "Garasbaaleey", "Hodan",
+  "Waaberi", "Xamar Jajab", "Xamar Wayne"
+];
 
 function validatePhone(phone: string): string {
   const value = phone.trim();
@@ -181,6 +190,7 @@ export default function UsersPage() {
       email: user.email || "",
       password: "",
       confirmPassword: "",
+      assigned_branch: user.assigned_branch || "",
     });
     setEditErrors({});
     setEditApiError("");
@@ -225,6 +235,10 @@ export default function UsersPage() {
 
     if (editFormData.password) {
       payload.password = editFormData.password;
+    }
+    
+    if (editingUser.role === "staff") {
+      payload.assigned_branch = editFormData.assigned_branch || null;
     }
 
     try {
@@ -308,6 +322,7 @@ export default function UsersPage() {
                   <th scope="col" className="px-6 py-4">Phone</th>
                   <th scope="col" className="px-6 py-4">Email</th>
                   <th scope="col" className="px-6 py-4">Role</th>
+                  <th scope="col" className="px-6 py-4">Branch</th>
                   <th scope="col" className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -360,6 +375,9 @@ export default function UsersPage() {
                         >
                           {user.role}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-500">
+                        {user.role === "staff" ? user.assigned_branch || <span className="text-amber-500 text-xs">Unassigned</span> : "-"}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Button
@@ -433,6 +451,21 @@ export default function UsersPage() {
                     className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 dark:bg-slate-900 dark:border-slate-700"
                     placeholder="john@example.com"
                   />
+                </div>
+                
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Assigned Branch (Staff only)</label>
+                  <select
+                    name="assigned_branch"
+                    value={formData.assigned_branch}
+                    onChange={(e: any) => handleInputChange(e)}
+                    className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 dark:bg-slate-900 dark:border-slate-700"
+                  >
+                    <option value="">Unassigned</option>
+                    {branchList.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="space-y-1">
@@ -564,6 +597,23 @@ export default function UsersPage() {
                     </p>
                   )}
                 </div>
+
+                {editingUser.role === "staff" && (
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Assigned Branch</label>
+                    <select
+                      name="assigned_branch"
+                      value={editFormData.assigned_branch}
+                      onChange={(e: any) => handleEditInputChange(e)}
+                      className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 dark:bg-slate-900 dark:border-slate-700"
+                    >
+                      <option value="">Unassigned</option>
+                      {branchList.map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300">

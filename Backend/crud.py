@@ -44,6 +44,7 @@ def create_user(db, user):
         email=user.email,
         phone=user.phone,
         password=hash_password(user.password),
+        assigned_branch=user.assigned_branch,
     )
 
     db.add(item)
@@ -98,6 +99,8 @@ def update_user(db, user_id: int, data):
     user.fullname = data.fullname
     user.phone = data.phone
     user.email = data.email
+    if hasattr(data, "assigned_branch") and data.assigned_branch is not None:
+        user.assigned_branch = data.assigned_branch
 
     # Only hash and replace password when a new one is provided
     if data.password:
@@ -162,6 +165,18 @@ def get_customer_by_id(db, customer_id: int):
     return db.query(Customer).filter(Customer.id == customer_id).first()
 
 
+def update_customer(db, customer_id: int, update_data: dict):
+    item = get_customer_by_id(db, customer_id)
+    if not item:
+        return None
+    for key, val in update_data.items():
+        if hasattr(item, key) and val is not None:
+            setattr(item, key, val)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
 def get_activity_logs(
     db,
     page: int = 1,
@@ -218,15 +233,20 @@ def _normalize_role(role: str | None) -> str:
 def apply_role_visibility(query, current_user):
     """
     ADMIN -> every prediction in the database (no user_id filter)
-    STAFF / others -> only their own predictions (user_id == current_user.id)
+    STAFF / others -> only their own predictions (user_id == current_user.id) AND within their assigned branch
     """
     role = _normalize_role(getattr(current_user, "role", None))
 
     if role in ("admin", "administrator"):
         return query
 
-    # STAFF and any non-admin role: only own records
-    return query.filter(PredictionHistory.user_id == current_user.id)
+    # STAFF and any non-admin role: only own records and in their assigned branch
+    branch = getattr(current_user, "assigned_branch", None)
+    if branch:
+        return query.filter(PredictionHistory.user_id == current_user.id, PredictionHistory.branch == branch)
+    else:
+        # If no branch is assigned, they see nothing
+        return query.filter(PredictionHistory.id == -1)
 
 
 def get_predictions(
@@ -306,6 +326,11 @@ def user_can_access_prediction(current_user, prediction) -> bool:
     role = _normalize_role(getattr(current_user, "role", None))
     if role in ("admin", "administrator"):
         return True
+    
+    branch = getattr(current_user, "assigned_branch", None)
+    if not branch or prediction.branch != branch:
+        return False
+        
     return prediction.user_id == current_user.id
 
 

@@ -53,6 +53,11 @@ class User(Base):
         default="staff"
     )
 
+    assigned_branch = Column(
+        String(100),
+        nullable=True
+    )
+
 # Customers (Water Usage Data)
 class Customer(Base):
     __tablename__ = "customers"
