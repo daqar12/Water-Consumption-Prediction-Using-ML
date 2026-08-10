@@ -21,7 +21,7 @@ export function StatCard({ title, value, icon, trend, subtitle }: StatCardProps)
                         <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
                             {title}
                         </p>
-                        <h3 className="text-3xl font-bold font-heading mt-2 text-slate-800 dark:text-slate-100">
+                        <h3 className="text-3xl font-bold font-heading mt-2 text-slate-900 dark:text-slate-100">
                             {value}
                         </h3>
                         {trend && (

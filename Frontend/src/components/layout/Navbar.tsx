@@ -28,6 +28,32 @@ export function Navbar() {
     return () => clearInterval(interval);
   }, [router]);
 
+  // Read theme on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("theme");
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const initialDark = saved === "dark" || (!saved && prefersDark);
+    setIsDark(initialDark);
+    if (initialDark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const isCurrentlyDark = document.documentElement.classList.contains("dark");
+    const nextDark = !isCurrentlyDark;
+    setIsDark(nextDark);
+    if (nextDark) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  };
+
   // Read session once on mount (sessionStorage is client-only)
   useEffect(() => {
     const session = getSession();
@@ -77,16 +103,13 @@ export function Navbar() {
       <div className="flex items-center gap-2">
         {/* Theme toggle */}
         <button
-          onClick={() => setIsDark(!isDark)}
+          type="button"
+          onClick={toggleTheme}
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label="Toggle theme"
           className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-150"
         >
           {isDark ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
-        </button>
-
-        {/* Notifications */}
-        <button className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-150 relative">
-          <Bell className="w-4.5 h-4.5" />
-          <span className="absolute top-2 right-2 w-[7px] h-[7px] bg-rose-500 rounded-full ring-2 ring-white dark:ring-slate-900" />
         </button>
 
         <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />

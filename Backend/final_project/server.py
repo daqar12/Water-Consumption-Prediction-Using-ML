@@ -1,9 +1,16 @@
+import sys
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import joblib
 import json
 import sys
 from pathlib import Path
+
+try:
+    import sklearn._loss._loss
+    sys.modules['_loss'] = sklearn._loss._loss
+except Exception:
+    pass
 
 from utils import prepare_features_from_row
 

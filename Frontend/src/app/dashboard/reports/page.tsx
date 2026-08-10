@@ -135,20 +135,6 @@ export default function ReportsPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-lg p-1">
-                        {["All", "September", "October", "November"].map((m) => (
-                            <button
-                                key={m}
-                                onClick={() => setActiveTab(m)}
-                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${activeTab === m
-                                    ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
-                                    : "text-slate-500 hover:text-slate-700"
-                                    }`}
-                            >
-                                {m}
-                            </button>
-                        ))}
-                    </div>
                     <button
                         onClick={() => handleExport("pdf")}
                         disabled={exporting === "pdf"}
@@ -236,7 +222,7 @@ export default function ReportsPage() {
                                 <CardTitle className="text-lg">Predicted vs Actual Consumption (m³)</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <div className="h-[260px]">
+                                <div className="h-[380px]">
                                     {charts && charts.prediction_accuracy.length > 0 ? (
                                         <ResponsiveContainer width="100%" height="100%">
                                             <LineChart data={charts.prediction_accuracy}>
@@ -257,39 +243,83 @@ export default function ReportsPage() {
                         </Card>
 
                         {/* Zone Distribution Pie */}
-                        <Card>
-                            <CardHeader>
+                        <Card className="flex flex-col">
+                            <CardHeader className="pb-2">
                                 <CardTitle className="text-lg">Predictions by Zone</CardTitle>
                             </CardHeader>
-                            <CardContent>
-                                <div className="h-[260px]">
-                                    {charts && charts.zone_distribution.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
-                                                <Pie
-                                                    data={charts.zone_distribution}
-                                                    cx="50%"
-                                                    cy="45%"
-                                                    innerRadius={65}
-                                                    outerRadius={95}
-                                                    paddingAngle={4}
-                                                    dataKey="value"
-                                                >
-                                                    {charts.zone_distribution.map((_, index) => (
-                                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                    ))}
-                                                </Pie>
-                                                <Tooltip
-                                                    formatter={(value: any, name?: string | number) => [String(value).toLocaleString(), String(name ?? "Predictions")]}
-                                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                                />
-                                                <Legend verticalAlign="bottom" height={36} iconSize={10} />
-                                            </PieChart>
-                                        </ResponsiveContainer>
-                                    ) : (
-                                        <div className="flex items-center justify-center h-full text-slate-400 text-xs">No records available for distribution charts.</div>
-                                    )}
-                                </div>
+                            <CardContent className="flex-1 flex flex-col justify-between">
+                                {charts && charts.zone_distribution.length > 0 ? (
+                                    <>
+                                        {/* Donut Chart */}
+                                        <div className="h-[170px] w-full relative">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <PieChart>
+                                                    <Pie
+                                                        data={charts.zone_distribution}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={48}
+                                                        outerRadius={72}
+                                                        paddingAngle={3}
+                                                        dataKey="value"
+                                                    >
+                                                        {charts.zone_distribution.map((_, index) => (
+                                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                        ))}
+                                                    </Pie>
+                                                    <Tooltip
+                                                        formatter={(value: any, name?: string | number) => [String(value).toLocaleString(), String(name ?? "Predictions")]}
+                                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                                    />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        {/* Vertical Line-by-Line Data Breakdown List */}
+                                        <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-2">
+                                            <div className="flex items-center justify-between text-[11px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2 mb-1.5">
+                                                <span>Zone</span>
+                                                <span>Predictions / Share</span>
+                                            </div>
+                                            <div className="max-h-[190px] overflow-y-auto space-y-1 pr-1 divide-y divide-slate-100 dark:divide-slate-800/40">
+                                                {(() => {
+                                                    const totalVal = charts.zone_distribution.reduce((acc, curr) => acc + (curr.value || 0), 0);
+                                                    return charts.zone_distribution.map((item, index) => {
+                                                        const pct = totalVal > 0 ? ((item.value / totalVal) * 100).toFixed(1) : "0.0";
+                                                        return (
+                                                            <div
+                                                                key={item.name || index}
+                                                                className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                                            >
+                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                    <span
+                                                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                                                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                                                    />
+                                                                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
+                                                                        {item.name}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center gap-2.5 shrink-0 ml-2">
+                                                                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                                                                        {item.value.toLocaleString()}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 w-11 text-right">
+                                                                        {pct}%
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex items-center justify-center h-[340px] text-slate-400 text-xs">
+                                        No records available for distribution charts.
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     </div>

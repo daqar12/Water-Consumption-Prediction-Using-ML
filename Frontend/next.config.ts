@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Disable floating development indicator badge
+  devIndicators: false,
+
   // Faster cold compiles + smaller client bundles for icon/chart libs
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts", "framer-motion"],

@@ -62,14 +62,11 @@ def _build_database_url() -> str:
     explicit = _get("DATABASE_URL")
     if explicit:
         return explicit
-    if not DB_PASSWORD:
-        raise RuntimeError(
-            "Set DATABASE_URL or DB_PASSWORD (with DB_HOST/DB_PORT/DB_NAME/DB_USER) "
-            "in the project root .env file."
-        )
-    user = quote_plus(DB_USER or "postgres")
-    password = quote_plus(DB_PASSWORD)
-    return f"postgresql://{user}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    if DB_PASSWORD:
+        user = quote_plus(DB_USER or "postgres")
+        password = quote_plus(DB_PASSWORD)
+        return f"postgresql://{user}:{password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    return "postgresql://postgres:12345@localhost:5432/WBP_DB"
 
 
 DATABASE_URL = _build_database_url()

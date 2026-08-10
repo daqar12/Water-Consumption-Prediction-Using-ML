@@ -1,14 +1,16 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-heading: var(--font-poppins);
   --font-body: var(--font-inter);
 
   --color-primary: #0b1ff6;
   --color-secondary: #F59E0B;
-  --color-background: #F8FAFC;
-  --color-card: #FFFFFF;
-  --color-text-main: #0F172A;
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-text-main: var(--foreground);
   --color-success: #22C55E;
   --color-danger: #EF4444;
 
@@ -24,15 +26,15 @@
   --secondary: #F59E0B;
   --success: #1d87f8;
   --danger: #EF4444;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    --foreground: #F8FAFC;
-    --card: #0F172A;
-    --primary: #2020fb;
-  }
+.dark {
+  --background: #0b0f19;
+  --foreground: #F8FAFC;
+  --card: #151c2c;
+  --primary: #3b82f6;
+  color-scheme: dark;
 }
 
 * {
@@ -47,5 +49,12 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-poppins), sans-serif;
+}
+
+/* Hide Next.js dev indicator badge overlay */
+nextjs-portal,
+[data-nextjs-toast-wrapper],
+[data-nextjs-dialog-overlay] {
+  display: none !important;
 }
 

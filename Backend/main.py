@@ -111,6 +111,23 @@ def _ensure_enhanced_schema_and_backfill():
 
 _ensure_enhanced_schema_and_backfill()
 
+# Seed default admin user if not existing
+try:
+    with Session(engine) as seed_db:
+        if not seed_db.query(User).filter(User.email == "admin@adt.org").first():
+            admin_user = User(
+                username="admin",
+                fullname="System Admin",
+                email="admin@adt.org",
+                phone="0000000000",
+                password="password123",
+                role="admin"
+            )
+            seed_db.add(admin_user)
+            seed_db.commit()
+except Exception as e:
+    print(f"Seed error: {e}")
+
 app = FastAPI()
 
 app.add_middleware(
@@ -205,15 +222,16 @@ def login(data: dict, db: Session = Depends(get_db)):
 
     # Support both bcrypt-hashed and plain text passwords (pre-migration)
     import re
-    is_hashed = bool(re.match(r"^\$2[aby]\$\d{2}\$.{53}$", user.password)) and len(user.password) == 60
+    is_valid = (user.password == data["password"])
+    if not is_valid:
+        try:
+            is_valid = verify_password(data["password"], user.password)
+        except Exception:
+            pass
 
-    if is_hashed:
-        if not verify_password(data["password"], user.password):
-            raise HTTPException(status_code=401, detail="Invalid password")
-    else:
-        # Fallback: plain text comparison (for users not yet migrated)
-        if user.password != data["password"]:
-            raise HTTPException(status_code=401, detail="Invalid password")
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Invalid password")
+
 
     token = secrets.token_hex(32)
     active_sessions[token] = {"id": user.id, "email": user.email, "role": user.role}
