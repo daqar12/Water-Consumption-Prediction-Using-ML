@@ -62,11 +62,16 @@ export function Sidebar() {
 
   return (
     <aside className="relative flex flex-col bg-card border-r transition-all duration-300 ease-in-out h-screen w-64">
-      <div className="flex items-center justify-between p-6 h-20 border-b">
-        <span className="font-heading font-bold text-xl text-primary">
-          Water Prediction ML
-        </span>
-      </div>
+    <div className="flex flex-col items-center justify-center p-4 h-40 border-b -translate-y-5">
+      <img
+        src="/logo.png"
+        alt="Water Prediction Logo"
+        className="h-20 w-auto object-contain"
+      />
+      <span className="-mt-3 font-heading font-bold text-lg text-primary dark:text-white text-center leading-tight">
+        Water Prediction
+      </span>
+    </div>
 
       <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
         {visibleItems.map((item) => {

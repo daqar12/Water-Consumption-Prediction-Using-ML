@@ -43,7 +43,7 @@ const modelDisplayNames: Record<string, string> = {
     xgboost: "XGBoost",
     tuned_random_forest: "Tuned Random Forest",
     tuned_xgboost: "Tuned XGBoost",
-    final_model: "Final Model",
+    final_model: "Linear Regression (Final)",
 };
 
 // ── Types ────────────────────────────────────────────────
@@ -264,9 +264,7 @@ export default function MLPredictionsPage() {
             setBranch(data.Branch || "");
             setZone(data.Zone || "");
 
-            if (data.record_source === "imported") {
-                setApiError("Prediction is only available for newly added customers (Imported Dataset rows represent reference data).");
-            } else if (data.november !== null && data.november !== undefined) {
+            if (data.november !== null && data.november !== undefined) {
                 setApiError(`November consumption has already been predicted for ${data.customer_code} (${data.november} m³) and is permanently locked.`);
             }
         } catch (err) {
@@ -371,7 +369,6 @@ export default function MLPredictionsPage() {
         if (!september || !october || !branch || !zone) return false;
         if (validateConsumptionField(september, "September")) return false;
         if (validateConsumptionField(october, "October")) return false;
-        if (loadedCustomer.record_source === "imported") return false;
         if (loadedCustomer.november !== null && loadedCustomer.november !== undefined) return false;
         return true;
     })();
@@ -463,7 +460,7 @@ export default function MLPredictionsPage() {
     // only the real per-algorithm outputs (Linear Regression, Decision Tree,
     // Random Forest, Gradient Boosting, XGBoost, etc.) are shown there.
     const individualPredictions = result
-        ? Object.entries(result.allPredictions).filter(([name]) => name !== "final_model")
+        ? Object.entries(result.allPredictions)
         : [];
 
     // Build bar chart data from individual model predictions only

@@ -462,7 +462,7 @@ export default function CustomersPage() {
                           className="border-b last:border-0 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
                         >
                           {/* Permanent Customer Code */}
-                          <td className="px-6 py-4 font-mono font-semibold text-primary text-xs">
+                          <td className="px-6 py-4 font-mono font-semibold text-primary dark:text-white text-xs">
                             {customer.customer_code}
                           </td>
 

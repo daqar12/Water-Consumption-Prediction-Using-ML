@@ -193,6 +193,9 @@ export default function SettingsPage() {
     newPassword: "",
     confirmPassword: "",
   });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // UI features state
   const [showApiKey, setShowApiKey] = useState(false);
@@ -1053,33 +1056,60 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   
                   <FormField label="Current Password" error={errors.currentPassword}>
-                    <input
-                      type="password"
-                      className={inputStyle}
-                      placeholder="••••••••"
-                      value={passwordState.currentPassword}
-                      onChange={(e) => setPasswordState(prev => ({ ...prev, currentPassword: e.target.value }))}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showCurrentPassword ? "text" : "password"}
+                        className={`${inputStyle} pr-10`}
+                        placeholder="••••••••"
+                        value={passwordState.currentPassword}
+                        onChange={(e) => setPasswordState(prev => ({ ...prev, currentPassword: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      >
+                        {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </FormField>
 
                   <FormField label="New Password" error={errors.newPassword}>
-                    <input
-                      type="password"
-                      className={inputStyle}
-                      placeholder="••••••••"
-                      value={passwordState.newPassword}
-                      onChange={(e) => setPasswordState(prev => ({ ...prev, newPassword: e.target.value }))}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showNewPassword ? "text" : "password"}
+                        className={`${inputStyle} pr-10`}
+                        placeholder="••••••••"
+                        value={passwordState.newPassword}
+                        onChange={(e) => setPasswordState(prev => ({ ...prev, newPassword: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </FormField>
 
                   <FormField label="Confirm Password" error={errors.confirmPassword}>
-                    <input
-                      type="password"
-                      className={inputStyle}
-                      placeholder="••••••••"
-                      value={passwordState.confirmPassword}
-                      onChange={(e) => setPasswordState(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                    />
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        className={`${inputStyle} pr-10`}
+                        placeholder="••••••••"
+                        value={passwordState.confirmPassword}
+                        onChange={(e) => setPasswordState(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </FormField>
 
                   <div className="md:col-span-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-lg border border-slate-100 dark:border-slate-800/60 flex gap-2">

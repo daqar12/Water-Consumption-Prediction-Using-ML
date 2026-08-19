@@ -462,7 +462,7 @@ async def upload_customers(
                 detail="Only CSV or XLSX allowed"
             )
 
-        req_cols = ["Customer Name", "Branch", "Zone", "September", "October", "November"]
+        req_cols = ["Customer Name", "Branch", "Zone", "September", "October"]
         missing_headers = [col for col in req_cols if col not in df.columns]
         if missing_headers:
             raise HTTPException(
@@ -486,10 +486,16 @@ async def upload_customers(
             try:
                 sep_val = float(row["September"])
                 oct_val = float(row["October"])
-                nov_val = float(row["November"])
-                if pd.isna(sep_val) or pd.isna(oct_val) or pd.isna(nov_val):
+                if pd.isna(sep_val) or pd.isna(oct_val):
                     skipped_count += 1
                     continue
+                
+                nov_val = None
+                if "November" in row and pd.notna(row["November"]):
+                    try:
+                        nov_val = float(row["November"])
+                    except (ValueError, TypeError):
+                        pass
             except (ValueError, TypeError):
                 skipped_count += 1
                 continue
@@ -500,7 +506,7 @@ async def upload_customers(
                 "Zone": c_zone,
                 "september": round(sep_val, 2),
                 "october": round(oct_val, 2),
-                "november": round(nov_val, 2)
+                "november": round(nov_val, 2) if nov_val is not None else None
             }
             crud.create_customer(db, cust_data, record_source="imported")
             inserted_count += 1
@@ -671,11 +677,7 @@ async def generate_prediction(
     if not target_customer:
         raise HTTPException(status_code=404, detail="Customer not found.")
         
-    if target_customer.record_source != "manual":
-        raise HTTPException(
-            status_code=400,
-            detail="Prediction is only available for newly added customers."
-        )
+
     if target_customer.november is not None:
         raise HTTPException(
             status_code=409,
